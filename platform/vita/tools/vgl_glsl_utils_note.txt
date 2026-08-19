@@ -1,0 +1,18 @@
+VitaGL local patch (not upstream): glsl_utils.c glsl_translator_process()
+line ~1089 `char *out = vglMalloc(strlen(input));` under-allocates the GLSL
+preprocessor OUTPUT buffer at exactly the INPUT length. Preprocessing expands
+macros, so for long shaders (e.g. Godot's tonemap.glsl) the output exceeds the
+input and overflows the heap -> memory corruption -> crash (seen as a fault in
+matrix4x4_invert with garbage registers). Fix applied in /tmp/vgl: size the
+output buffer generously: vglMalloc(strlen(input) * 4 + 16384).
+
+VitaGL local patch #2 (buffers.c / custom_shaders.c): cur_vao use-after-free /
+null deref. glDeleteVertexArrays() frees a vao but does NOT reset cur_vao when
+the deleted VAO is the currently-bound one -> cur_vao dangles. Godot then calls
+glGetVertexAttribiv (custom_shaders.c:3074, reads cur_vao->vertex_attrib_value)
+and faults (coredump: EXCEPTION_DATA_ABORT, DFAR=0x32c ~= null+offset, PC in
+glGetVertexAttribiv). Fixes: (1) glDeleteVertexArrays resets cur_vao to
+&default_vao if it deleted the bound VAO; (2) glGetVertexAttrib{iv,fv,Pointerv}
+fall back to &default_vao when cur_vao is null. NOTE on coredump addr2line: the
+eboot's text segment is relocated +0x12000 at runtime (ELF entry 0x8100164d vs
+coredump module_start 0x8101364d), so map runtime PC -> ELF via (pc - 0x12000).

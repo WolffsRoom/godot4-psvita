@@ -1,0 +1,39 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+
+vita_files = [
+    "godot_vita.cpp",
+    "os_vita.cpp",
+    "display_server_vita.cpp",
+    "gl_manager_vita.cpp",
+    "audio_driver_vita.cpp",
+    "joypad_vita.cpp",
+    "vita_posix_compat.c",  # POSIX funcs newlib declares but doesn't implement.
+    "vita_cpp_compat.cpp",  # ...and the ones VitaSDK declares without extern "C".
+]
+
+prog = env.add_program("#bin/godot", vita_files)
+
+# --- Vita packaging pipeline (VELF -> FSELF -> eboot.bin -> VPK) --------------
+# Mirrors the 3.x port. Requires vita-elf-create / vita-make-fself / vita-mksfoex
+# / vita-pack-vpk from VitaSDK (paths come from env["VITASDK_BIN"]).
+bindir = env["VITASDK_BIN"]
+
+env.Append(
+    BUILDERS={
+        "VitaStrip": Builder(action=[Copy("$TARGET", "$SOURCE"), bindir + "arm-vita-eabi-strip -g $TARGET"]),
+        "VitaELF": Builder(action=bindir + "vita-elf-create $SOURCE $TARGET"),
+        "VitaSelf": Builder(action=bindir + "vita-make-fself -s -c $SOURCE $TARGET"),
+    }
+)
+
+stripped = env.VitaStrip("#bin/godot.stripped.elf", prog)
+velf = env.VitaELF("#bin/godot.velf", stripped)
+eboot = env.VitaSelf("#bin/eboot.bin", velf)
+
+# NOTE: param.sfo generation and vita-pack-vpk are left to a helper script /
+# the export plugin so the icon, LiveArea assets and title-id can be supplied
+# per-project. See platform/vita/app/ for the template LiveArea layout.
+Default(eboot)

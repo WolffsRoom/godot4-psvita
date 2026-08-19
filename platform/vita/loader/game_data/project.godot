@@ -1,0 +1,18 @@
+config_version=5
+
+[application]
+
+config/name="Godot 4 Vita Test"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.4")
+
+[display]
+
+window/size/viewport_width=960
+window/size/viewport_height=544
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

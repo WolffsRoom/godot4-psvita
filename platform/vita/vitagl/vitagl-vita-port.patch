@@ -1,0 +1,183 @@
+--- /mnt/c/tmp/vitaGL-nosplash-src/source/utils/glsl_utils.c	2026-07-16 21:26:08.029739600 -0300
++++ source/utils/glsl_utils.c	2026-08-19 00:06:44.719097561 -0300
+@@ -27,7 +27,7 @@
+ #include "glsl_utils.h"
+ #include "preprocessor/preprocessor_c.h"
+ 
+-#define MEM_ENLARGER_SIZE (1024 * 1024) // FIXME: Check if this is too big/small
++#define MEM_ENLARGER_SIZE (4 * 1024 * 1024) // FIXME: Check if this is too big/small
+ 
+ #define glsl_get_existing_texcoord_bind(idx, s) \
+ 	for (int j = 0; j < MAX_CG_TEXCOORD_ID; j++) { \
+@@ -109,11 +109,11 @@
+ int glsl_current_ref_idx = 0;
+ GLboolean glsl_is_first_shader = GL_TRUE;
+ GLboolean glsl_precision_low = GL_FALSE;
+-GLenum glsl_sema_mode = VGL_MODE_POSTPONED;
++GLenum glsl_sema_mode = VGL_MODE_SHADER_PAIR;
+ binds_map glsl_bindings_map;
+ 
+ void glsl_translate_with_shader_pair(char *text, GLenum type, GLboolean hasFrontFacing) {
+-	char newline[128];
++	char newline[2048]; // VITA: was 128 - Godot 4 varyings overflow it (stack smash)
+ 	int idx;
+ 	if (type == GL_VERTEX_SHADER) {
+ 		// Manually patching attributes and varyings
+@@ -499,7 +499,7 @@
+ }
+ 
+ void glsl_translate_with_global(char *text, GLenum type, GLboolean hasFrontFacing) {
+-	char newline[128];
++	char newline[2048]; // VITA: was 128 - Godot 4 varyings overflow it (stack smash)
+ 	int idx;
+ 	if (type == GL_VERTEX_SHADER) {
+ 		// Manually patching attributes and varyings
+@@ -1086,7 +1086,7 @@
+ 	vgl_log("%s:%d %s: GLSL translation input:\n\n%s\n\n", __FILE__, __LINE__, __func__, input);
+ #endif
+ 
+-	char *out = vglMalloc(strlen(input));
++	char *out = vglMalloc(strlen(input) * 4 + 16384);
+ 	glsl_preprocess("full", input, out);
+ 	vgl_free(input);
+ #ifdef DEBUG_GLSL_PREPROCESSOR
+@@ -1158,7 +1158,7 @@
+ 	}
+ 	
+ 	vgl_free(s->source);
+-	s->source = (char *)vglMalloc(size);
++	s->source = (char *)vglMalloc(size + MEM_ENLARGER_SIZE);
+ 	s->source[0] = 0;
+ 	
+ 	// Injecting GLSL to CG header
+@@ -1219,11 +1219,11 @@
+ 		char *str = strstr(s->source, "\v");
+ 		while (str) {
+ 			char *start = str;
+-			while (*start != ',') {
++			while (start > s->source && *start != ',') {
+ 				start--;
+ 			}
+ 			char *end = start;
+-			while (*start != ' ' && *start != '\t') {
++			while (start > s->source && *start != ' ' && *start != '\t') {
+ 				start--;
+ 			}
+ 			start++;
+@@ -1261,11 +1261,11 @@
+ 		str = strstr(s->source, "\f");
+ 		while (str) {
+ 			char *start = str;
+-			while (*start != ',') {
++			while (start > s->source && *start != ',') {
+ 				start--;
+ 			}
+ 			char *end = start;
+-			while (*start != ' ' && *start != '\t') {
++			while (start > s->source && *start != ' ' && *start != '\t') {
+ 				start--;
+ 			}
+ 			start++;
+--- /mnt/c/tmp/vitaGL-nosplash-src/source/debug.c	2026-07-16 21:26:07.992705900 -0300
++++ source/debug.c	2026-08-18 23:49:18.604538515 -0300
+@@ -222,7 +222,7 @@
+ 	va_start(arg, format);
+ 	vsnprintf(msg, sizeof(msg), format, arg);
+ 	va_end(arg);
+-	SceUID log = sceIoOpen("ux0:/data/vitaGL.log", SCE_O_WRONLY | SCE_O_APPEND | SCE_O_CREAT, 0777);
++	SceUID log = sceIoOpen("ux0:data/vitaGL.log", SCE_O_WRONLY | SCE_O_APPEND | SCE_O_CREAT, 0777);
+ 	if (log >= 0) {
+ 		sceIoWrite(log, msg, strlen(msg));
+ 		sceIoClose(log);
+--- /mnt/c/tmp/vitaGL-nosplash-src/source/buffers.c	2026-07-16 21:26:07.989942900 -0300
++++ source/buffers.c	2026-08-18 23:49:18.604859038 -0300
+@@ -36,7 +36,7 @@
+ void *texture_object; // Texture object address for vgl* draw pipeline
+ void *index_object; // Index object address for vgl* draw pipeline
+ 
+-static vao default_vao; // Vertex Array Object used when no vao is bound
++vao default_vao; // Vertex Array Object used when no vao is bound
+ vao *cur_vao = &default_vao; // Current in-use vertex array object
+ 
+ query *active_query = NULL; // Active query object
+@@ -239,6 +239,8 @@
+ 	for (int j = 0; j < n; j++) {
+ 		if (gl_arrays[j]) {
+ 			vao *gpu_buf = (vao *)gl_arrays[j];
++			if (cur_vao == gpu_buf)
++				cur_vao = &default_vao;
+ 			mark_as_dirty(gpu_buf->vertex_attrib_pool);
+ 			vgl_free(gpu_buf);
+ 		}
+--- /mnt/c/tmp/vitaGL-nosplash-src/source/custom_shaders.c	2026-07-16 21:26:07.991668500 -0300
++++ source/custom_shaders.c	2026-08-18 23:49:18.607059594 -0300
+@@ -532,6 +532,8 @@
+ 
+ static inline __attribute__((always_inline)) size_t serialized_shader_size(shader *s, GLboolean have_bindings, uint32_t *matrix_uniforms_num) {
+ 	*matrix_uniforms_num = 0;
++	if (!s)
++		return 0;
+ 	matrix_uniform *m = s->mat;
+ 	while (m) {
+ 		*matrix_uniforms_num = *matrix_uniforms_num + 1;
+@@ -548,6 +550,7 @@
+ 
+ void *serialize_shader(void *out, size_t *sz, shader *s, GLboolean save_bindings) {
+ 	uint32_t matrix_uniforms_num;
++	if (!s) { *sz = 0; return out; }
+ 	*sz = serialized_shader_size(s, save_bindings, &matrix_uniforms_num);
+ 	void *_out = out;
+ 	if (!_out) {
+@@ -2957,6 +2960,9 @@
+ void glGetVertexAttribPointerv(GLuint index, GLenum pname, void **pointer) {
+ 	THREAD_SAFE()
+ 
++	if (!cur_vao)
++		cur_vao = &default_vao;
++
+ #ifndef SKIP_ERROR_HANDLING
+ 	if (pname != GL_VERTEX_ATTRIB_ARRAY_POINTER) {
+ 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
+@@ -3039,6 +3045,9 @@
+ void glGetVertexAttribiv(GLuint index, GLenum pname, GLint *params) {
+ 	THREAD_SAFE()
+ 
++	if (!cur_vao)
++		cur_vao = &default_vao;
++
+ #ifndef SKIP_ERROR_HANDLING
+ 	if (index >= VERTEX_ATTRIBS_NUM) {
+ 		SET_GL_ERROR(GL_INVALID_VALUE)
+@@ -3082,6 +3091,9 @@
+ void glGetVertexAttribfv(GLuint index, GLenum pname, GLfloat *params) {
+ 	THREAD_SAFE()
+ 
++	if (!cur_vao)
++		cur_vao = &default_vao;
++
+ #ifndef SKIP_ERROR_HANDLING
+ 	if (index >= VERTEX_ATTRIBS_NUM) {
+ 		SET_GL_ERROR(GL_INVALID_VALUE)
+--- /mnt/c/tmp/vitaGL-nosplash-src/source/shared.h	2026-07-16 21:26:08.013587200 -0300
++++ source/shared.h	2026-08-18 23:49:18.605223264 -0300
+@@ -1086,7 +1086,8 @@
+ extern vector4f clear_rgba_val; // Current clear color for glClear
+ extern viewport gl_viewport; // Current viewport state
+ extern GLboolean is_fbo_float; // Current framebuffer mode
+-extern vao *cur_vao; // Current in-use vertex array object
++extern vao *cur_vao;
++extern vao default_vao; // Current in-use vertex array object
+ extern shad_mode shading_mode;
+ 
+ // Culling
+--- /mnt/c/tmp/vitaGL-nosplash-src/Makefile	2026-07-16 21:26:07.802746100 -0300
++++ Makefile	2026-08-18 23:51:31.218130579 -0300
+@@ -12,7 +12,7 @@
+ CC      = $(PREFIX)-gcc
+ CXX     = $(PREFIX)-g++
+ AR      = $(PREFIX)-gcc-ar
+-CFLAGS  = -g -Wl,-q -O3 -ffast-math -mtune=cortex-a9 -mfpu=neon -Wno-incompatible-pointer-types -Wno-stringop-overflow -mfp16-format=ieee \
++CFLAGS  = -g -Wl,-q -O3 -ffast-math -mtune=cortex-a9 -mfpu=neon -mfloat-abi=hard -Wno-incompatible-pointer-types -Wno-stringop-overflow -mfp16-format=ieee \
+ 	-DVGL_GIT_HASH='"$(shell git rev-parse --short HEAD)"'
+ ASFLAGS = $(CFLAGS)
+ 
