@@ -419,3 +419,10 @@ platform/vita/loader/libgodot.so
 
 # godot4-vita: drop upstream Godot CI workflows (need 'workflow' token scope)
 .github/workflows/
+
+# Vita native probe / CMake intermediates (rebuildable)
+platform/vita/tools/**/build-*/
+platform/vita/tools/**/CMakeFiles/
+platform/vita/tests/**/.godot/
+platform/vita/demo_assets/**/frame_manifest.json.bak
+

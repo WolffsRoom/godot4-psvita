@@ -44,6 +44,8 @@ def get_opts():
 
     return [
         BoolVariable("use_vitagl", "Use VitaGL as the GL backend (required for the Compatibility renderer)", True),
+        BoolVariable("vita_shared", "Build libgodot.so for the Vita loader", True),
+        ("vita_gl_root", "Explicit patched VitaGL directory (library and source/vitaGL.h)", ""),
         BoolVariable("touch", "Enable touch input", True),
         BoolVariable("debug_symbols", "Add debugging symbols to release/template builds", False),
     ]
@@ -131,12 +133,15 @@ def configure(env: "SConsEnvironment"):
     )
     env.Append(LIBPATH=[os.path.join(vitasdk, "arm-vita-eabi", "lib")])
 
-    # LOCAL BUILD HACK (WSL): link against the locally-rebuilt no-splash VitaGL
-    # and the regenerated SceAppMgr/SceSharedFb stub, which the stock SDK lacks.
-    # TODO: replace by installing the fixed VitaGL + stubs into $VITASDK.
-    for _p in ("/tmp/stubs", "/tmp/vgl"):
-        if os.path.isdir(_p):
-            env.Prepend(LIBPATH=[_p])
+    vita_gl_root = os.path.abspath(env["vita_gl_root"])
+    if not env["vita_gl_root"] or not os.path.isfile(os.path.join(vita_gl_root, "source", "vitaGL.h")):
+        print_error("Set vita_gl_root to the identified patched VitaGL build directory.")
+        sys.exit(255)
+    if not os.path.isfile(os.path.join(vita_gl_root, "libvitaGL.a")):
+        print_error("vita_gl_root must contain libvitaGL.a.")
+        sys.exit(255)
+    env.Prepend(CPPPATH=[os.path.join(vita_gl_root, "source")])
+    env.Prepend(LIBPATH=[vita_gl_root])
 
     ## Build type (4.x target names)
     if env["target"] == "template_release":

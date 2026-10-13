@@ -54,8 +54,12 @@ static void vlog(const char *s) {
 
 #ifdef VITAGL
 #include <vitaGL.h>
-// VitaGL needs a large newlib heap for GXM buffers + textures.
-int _newlib_heap_size_user = 256 * 1024 * 1024;
+// Split the ~256 MB app budget: the newlib heap (engine malloc) must NOT eat it
+// all, or vglInit() finds no free RAM for its GXM pools and every GPU buffer
+// allocation fails (glGenBuffers -> 0 -> glBufferData GL_INVALID_OPERATION),
+// leaving 2D nothing to draw. 96 MB is plenty for the engine here and leaves
+// ~110 MB (+128 MB CDRAM) for VitaGL's buffers/textures/framebuffers.
+int _newlib_heap_size_user = 96 * 1024 * 1024;
 #endif
 
 int main(int argc, char *argv[]) {

@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "joypad_vita.h"
+#include <stdio.h>
 
 struct VitaButtonMap {
 	unsigned int sce_button;
@@ -53,18 +54,46 @@ static const VitaButtonMap button_map[] = {
 
 JoypadVita::JoypadVita(Input *p_input) :
 		input(p_input) {
-	sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
-	// Godot sees a single, always-connected gamepad on device 0.
-	input->joy_connection_changed(0, true, "PlayStation Vita", "");
+	int mode_rc = sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+	// Vita provides SDL/Godot-standard button indices directly. Avoid remapping
+	// them through an unrelated controller's SDL mapping database.
+	Dictionary joy_info;
+	joy_info["mapping_handled"] = true;
+	input->joy_connection_changed(0, true, "PlayStation Vita", "VITA-NATIVE-CTRL", joy_info);
+	fprintf(stderr, "[vita-pad] init driver=1 mode_rc=%d device=0 native_mapping=1\n", mode_rc);
+	fflush(stderr);
 }
 
 JoypadVita::~JoypadVita() {}
 
 void JoypadVita::process_joypads() {
-	if (sceCtrlPeekBufferPositive(0, &pad, 1) < 0) {
+	const int samples = sceCtrlPeekBufferPositive(0, &pad, 1);
+	static unsigned int frames = 0;
+	static unsigned int previous_buttons = 0;
+	static unsigned char previous_lx = 128;
+	static unsigned char previous_ly = 128;
+	static bool first_sample = true;
+
+	if (samples <= 0) {
+		if ((++frames % 300) == 1) {
+			fprintf(stderr, "[vita-pad] read samples=%d (no valid input sample)\n", samples);
+			fflush(stderr);
+		}
 		return;
 	}
-
+	frames++;
+	if (first_sample || pad.buttons != previous_buttons ||
+		((frames % 300) == 0) ||
+		((int)pad.lx - (int)previous_lx > 32) || ((int)previous_lx - (int)pad.lx > 32) ||
+		((int)pad.ly - (int)previous_ly > 32) || ((int)previous_ly - (int)pad.ly > 32)) {
+		fprintf(stderr, "[vita-pad] sample=%d buttons=0x%08x lx=%u ly=%u rx=%u ry=%u frame=%u\n",
+				samples, pad.buttons, pad.lx, pad.ly, pad.rx, pad.ry, frames);
+		fflush(stderr);
+	}
+	first_sample = false;
+	previous_buttons = pad.buttons;
+	previous_lx = pad.lx;
+	previous_ly = pad.ly;
 	for (const VitaButtonMap &b : button_map) {
 		input->joy_button(0, b.godot_button, (pad.buttons & b.sce_button) != 0);
 	}

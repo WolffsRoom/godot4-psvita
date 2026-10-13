@@ -45,6 +45,9 @@
 
 #ifdef BROTLI_ENABLED
 #include "scene/theme/default_font.gen.h"
+#ifdef VITA_ENABLED
+#include "platform/vita/fonts/vita_default_font.gen.h"
+#endif
 #endif
 
 static const int default_font_size = 16;
@@ -1406,8 +1409,14 @@ void make_default_theme(float p_scale, Ref<Font> p_font, TextServer::SubpixelPos
 		// embedded in both editor and export template binaries.
 		Ref<FontFile> dynamic_font;
 		dynamic_font.instantiate();
-#ifdef BROTLI_ENABLED
+#ifdef VITA_ENABLED
+		// The VitaSDK FreeType build has no WOFF2/Brotli support. OpenSans WOFF2
+		// fails FT_Open_Face even though its embedded data is non-empty.
+		dynamic_font->set_data_ptr(_vita_default_font, _vita_default_font_size);
+#elif defined(BROTLI_ENABLED)
 		dynamic_font->set_data_ptr(_font_OpenSans_SemiBold, _font_OpenSans_SemiBold_size);
+#endif
+#if defined(BROTLI_ENABLED) || defined(VITA_ENABLED)
 		dynamic_font->set_subpixel_positioning(p_font_subpixel);
 		dynamic_font->set_hinting(p_font_hinting);
 		dynamic_font->set_antialiasing(p_font_antialiasing);

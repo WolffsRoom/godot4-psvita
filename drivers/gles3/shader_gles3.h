@@ -237,6 +237,10 @@ protected:
 public:
 	RID version_create();
 
+#ifdef VITA_ENABLED
+	GLuint vita_get_current_program() const { return current_shader ? current_shader->id : 0; }
+#endif
+
 	void version_set_code(RID p_version, const HashMap<String, String> &p_code, const String &p_uniforms, const String &p_vertex_globals, const String &p_fragment_globals, const Vector<String> &p_custom_defines, const LocalVector<ShaderGLES3::TextureUniformData> &p_texture_uniforms, bool p_initialize = false);
 
 	bool version_is_valid(RID p_version);

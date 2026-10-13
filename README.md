@@ -15,26 +15,34 @@ is used as a reference (kept under `../godot-vita-3.x` in the original tree).
 
 ---
 
-## Status
+## Status (October 2026)
 
-| Milestone | State |
+This experimental **Godot 4.8-dev7 PlayStation Vita runtime** has progressed
+from engine boot/logo bring-up to a **playable Godot 4 2D game**, [Dodge the
+Creeps](platform/vita/tests/dodge_the_creeps/). A real-Vita tester reported
+the game **fully functional** after native GXM rendering, joypad mapping,
+HUD, animation and worker-thread fixes.
+
+| Milestone | Current state |
 |---|---|
-| Whole engine compiles for Vita (ARM, `template_release`) | ✅ ~1650 files, 0 errors |
-| so-loader architecture (thin eboot + PIC `libgodot.so`) | ✅ sidesteps the `-Wl,-q` Thumb-veneer link wall |
-| Boots on real hardware (loads `.so`, resolves imports, calls `main`) | ✅ |
-| `Main::setup` — servers + renderer up | ✅ |
-| Main loop running, no crash | ✅ |
-| **Godot boot logo renders on device** | ✅ |
-| GLES3→Cg shader down-emit (254 shaders compile) | ✅ |
-| Rendering a 2D scene (Control / ColorRect / Label) | 🚧 blocked on the **canvas 2D shader** |
-| 3D scene shader | ❌ (large; not required for 2D) |
+| ARM template_release, PIC libgodot.so and kuBridge loader | Working on real Vita |
+| Native GXM ColorRects, sprites, 2D game and UI | Working in Dodge the Creeps; partial Canvas coverage |
+| X/START, D-pad, analog controls and sound | Working in the reference demo |
+| Game score, collision, enemies, game-over UI | Confirmed playable on physical Vita |
+| Native worker-pool crash at score ~8 | Coredump decoded and patch applied; newer build reported playable |
+| Six-second Godot Vita chewing animation and optional a5 LiveArea | Compiled and packaged; animated transition still needs a device test |
+| GPUParticles2D, arbitrary 2D custom shaders and 3D | Not fully supported |
 
-**What blocks 2D scene content right now:** Godot 4's `canvas.glsl` packs batch
-data into **integer vertex attributes** (`in uvec4`), integer `flat` varyings,
-and ES3 pack/unpack builtins. The PowerVR SGX / VitaGL GLES2 path does not have
-these natively, so the canvas shader needs rasterizer-level work (upload integer
-attributes as float + reinterpret) plus builtin polyfills. That is the current
-focus.
+The native GXM renderer bypasses the incomplete GLES3-to-Cg path for supported
+Canvas2D primitives. This result does **not** imply that arbitrary Godot 4.8
+projects, effects, shaders or particle scenes can run on Vita.
+
+The updated demo adds an in-game settings overlay (speed, master volume,
+FPS cap) and progressive color changes with score, host-tested but awaiting
+fresh Vita testing. It also offers an optional 180-frame/30-FPS loading animation. Its
+[assets](platform/vita/demo_assets/dodge_the_creeps/) and [build documentation]
+(platform/vita/BUILDING.md) are included. Details are summarized in the
+[October 2026 technical update](platform/vita/UPDATES_2026_10.md).
 
 ---
 
@@ -64,44 +72,44 @@ long chain of "random" memory-corruption crashes.
 
 ## Building
 
-Requires [VITASDK](https://vitasdk.org) and a patched VitaGL.
+Requires [VitaSDK](https://vitasdk.org), Python 3/SCons, CMake and a
+**matching, validated patched VitaGL** build. See the full
+[build guide](platform/vita/BUILDING.md).
 
-```bash
-# 1) VitaGL (see platform/vita/vitagl/README.md — apply the patch first)
-make -C vitagl -j4 NO_SPLASHSCREEN=1 HAVE_GLSL_UBOS=1 HAVE_SHARK_LOG=1 LOG_ERRORS=2
+Build an engine shared object from the repository root:
 
-# 2) Engine as a PIC shared object (template_release)
-scons platform=vita arch=arm32 target=template_release optimize=size disable_path_overrides=no
-#    then relink the objects/archives as: -shared -nostdlib -fPIC \
-#    -Wl,--unresolved-symbols=ignore-all -Wl,-soname,libgodot.so
+    python3 -m SCons platform=vita arch=arm32 target=template_release       optimize=size disable_path_overrides=no vita_shared=yes       vita_gl_root=/absolute/path/to/patched/vitagl -j6
 
-# 3) Loader eboot + VPK (bundles libgodot.so + a loose test project)
-cmake -B build platform/vita/loader && make -C build
-```
+Then package the GXM Dodge the Creeps demo with optional native loading:
 
-A prebuilt preview VPK that boots and renders the Godot logo lives at
-`platform/vita/dist/godot4-vita-preview.vpk`.
+    python3 platform/vita/tools/package_runtime.py       --runtime bin/libgodot.so       --ubo-build /absolute/path/to/validated-ubo-build       --output /absolute/path/to/new-vpk-build       --backend gxm2d --scene dodge_the_creeps       --livearea-dir platform/vita/demo_assets/dodge_the_creeps/LiveArea       --boot-animation platform/vita/demo_assets/dodge_the_creeps/boot_anim.dat
 
-Handy tools live in `platform/vita/tools/` (a `libvcp`-based PSP2 coredump parser
-that was essential for the crash debugging).
+For a fresh clone, import the example in a Godot 4.8 host executable first
+to create .godot/imported resources. The Vita engine cannot import arbitrary
+source PNG, OGG and font assets at runtime. VitaSDK+matching VitaGL dependencies
+are required for packaging; see BUILDING.md. VPKs are generated outputs and
+not guaranteed to run without real-hardware testing.
+
+The independent, physically tested game lives in the sibling local workspace
+DodgeCreepsVita; this fork remains the engine source and reference fixture.
 
 ---
 
 ## Layout of the Vita-specific work
 
-```
-platform/vita/            the port: OS_Vita, DisplayServer, GL manager, audio,
-                          input, POSIX shims, platform_gl.h ES3 token/shims
-platform/vita/loader/     the so-loader eboot + game_data test project
-platform/vita/vitagl/     VitaGL patch + build notes
-platform/vita/tools/      coredump parser and helpers
-platform/vita/dist/       prebuilt preview VPK
-drivers/gles3/shader_gles3.cpp        the GLSL ES3 -> Cg down-emit
-drivers/gles3/shaders/tonemap_inc.glsl  reduced for the Vita bring-up
-```
+| Path | Purpose |
+|---|---|
+| platform/vita/ | Vita OS, inputs, audio, graphics and native platform code |
+| platform/vita/rasterizer_gxm_vita.cpp | Native GXM canvas subset |
+| platform/vita/loader/ | Shared-object loader and optional boot_splash.c |
+| platform/vita/demo_assets/dodge_the_creeps/ | a5 LiveArea and original 180-frame boot package |
+| platform/vita/tests/dodge_the_creeps/ | Playable sample and host regression tests |
+| platform/vita/tests/colorrect/, canvas_features/ | Renderer validation fixtures |
+| platform/vita/tools/ | ELF verification, probes and package creation |
+| platform/vita/vitagl/ | Patched VitaGL source notes |
 
-Everything else is upstream Godot 4.8-dev. Upstream's own README is preserved as
-[`README.godot.md`](README.godot.md).
+The original upstream README is preserved as
+[README.godot.md](README.godot.md).
 
 ---
 

@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "../gxm_bridge.h"
 typedef struct { char *symbol; uintptr_t func; } so_default_dynlib;
 
 extern int FT_Activate_Size();
@@ -653,6 +654,15 @@ extern int wcscpy();
 extern int write();
 
 so_default_dynlib default_dynlib[] = {
+  { "vita_gxm_init", (uintptr_t)&vita_gxm_init },
+  { "vita_gxm_texture_create", (uintptr_t)&vita_gxm_texture_create },
+  { "vita_gxm_texture_free", (uintptr_t)&vita_gxm_texture_free },
+  { "vita_gxm_texture_quad", (uintptr_t)&vita_gxm_texture_quad },
+  { "vita_gxm_begin", (uintptr_t)&vita_gxm_begin },
+  { "vita_gxm_quad", (uintptr_t)&vita_gxm_quad },
+  { "vita_gxm_clip", (uintptr_t)&vita_gxm_clip },
+  { "vita_gxm_end", (uintptr_t)&vita_gxm_end },
+  { "vita_gxm_finish", (uintptr_t)&vita_gxm_finish },
   { "FT_Activate_Size", (uintptr_t)&FT_Activate_Size },
   { "FT_Add_Default_Modules", (uintptr_t)&FT_Add_Default_Modules },
   { "FT_Done_Face", (uintptr_t)&FT_Done_Face },

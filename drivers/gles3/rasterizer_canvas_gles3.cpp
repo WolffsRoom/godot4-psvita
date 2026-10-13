@@ -46,6 +46,10 @@
 #include "servers/rendering/rendering_server_globals.h"
 #include "servers/rendering/rendering_server_types.h"
 
+#ifdef VITA_ENABLED
+#include "platform/vita/canvas_uniforms_vita.h"
+#endif
+
 void RasterizerCanvasGLES3::_update_transform_2d_to_mat4(const Transform2D &p_transform, float *p_mat4) {
 	p_mat4[0] = p_transform.columns[0][0];
 	p_mat4[1] = p_transform.columns[0][1];
@@ -320,7 +324,7 @@ void RasterizerCanvasGLES3::canvas_render_items(RID p_to_render_target, Item *p_
 
 	{
 		//update canvas state uniform buffer
-		StateBuffer state_buffer;
+		StateBuffer state_buffer = {};
 
 		Size2i ssize = texture_storage->render_target_get_size(p_to_render_target);
 
@@ -373,6 +377,9 @@ void RasterizerCanvasGLES3::canvas_render_items(RID p_to_render_target, Item *p_
 
 		state_buffer.tex_to_sdf = 1.0 / ((canvas_scale.x + canvas_scale.y) * 0.5);
 
+#ifdef VITA_ENABLED
+		vita_canvas_state = state_buffer;
+#endif
 		glBindBufferBase(GL_UNIFORM_BUFFER, BASE_UNIFORM_LOCATION, state.canvas_instance_data_buffers[state.current_data_buffer_index].state_ubo);
 		glBufferData(GL_UNIFORM_BUFFER, sizeof(StateBuffer), &state_buffer, GL_STREAM_DRAW);
 
@@ -722,6 +729,10 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
 		if (!success) {
 			continue;
 		}
+
+#ifdef VITA_ENABLED
+		vita_upload_canvas_uniforms(material_storage->shaders.canvas_shader.vita_get_current_program(), vita_canvas_state);
+#endif
 
 		// Bind per-batch uniforms.
 		material_storage->shaders.canvas_shader.version_set_uniform(CanvasShaderGLES3::BATCH_FLAGS, state.canvas_instance_batches[i].flags, shader_version, variant, specialization);

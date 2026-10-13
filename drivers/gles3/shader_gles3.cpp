@@ -30,6 +30,19 @@
 
 #include "shader_gles3.h"
 
+#ifdef VITA_ENABLED
+#include <stdio.h>
+static void vita_trace_shader(const char *p_stage, const char *p_name, const char *p_source, const char *p_path) {
+	fprintf(stderr, "[vita-shader] %s %s begin\n", p_name, p_stage);
+	fflush(stderr);
+	FILE *file = fopen(p_path, "w");
+	if (file) {
+		fputs(p_source, file);
+		fclose(file);
+	}
+}
+#endif
+
 #ifdef GLES3_ENABLED
 
 #include "core/io/dir_access.h"
@@ -181,8 +194,9 @@ RID ShaderGLES3::version_create() {
 //   * single fragment output `out vec4 NAME;` -> `#define NAME gl_FragColor`
 //   * `uniform BLK { ... } [inst];` (std140 UBO block) -> flattened to plain
 //     uniforms (the in-shader UBO block is exactly what crashes VitaGL's linker;
-//     the API-side glBindBufferBase still works, but Godot's compat path reads
-//     these as regular uniforms anyway)
+//     the API-side glBindBufferBase still works, but cannot feed the flattened
+//     uniforms. CanvasData is uploaded explicitly via canvas_uniforms_vita.h;
+//     other flattened blocks still need their own transport.)
 //
 // KNOWN TODO (need on-device iteration once Phase 1 builds):
 //   * ES3 builtins with no Cg equivalent: unpackHalf2x16 / unpackUnorm4x8 /
@@ -193,6 +207,31 @@ RID ShaderGLES3::version_create() {
 //     a shader-text change.
 //   * `flat` qualifier on varyings is left as-is (Cg tolerates it on some
 //     profiles); revisit if it errors.
+// Replace the first standalone occurrence of `p_tok` in `p_line` with `p_repl`
+// (token boundaries respected, so `in` won't match inside `int`/`vin`/etc.).
+static String _vita_replace_qualifier(const String &p_line, const char *p_tok, const char *p_repl) {
+	String tok = p_tok;
+	int pos = 0;
+	while ((pos = p_line.find(tok, pos)) != -1) {
+		bool lb = (pos == 0);
+		if (!lb) {
+			char32_t pv = p_line[pos - 1];
+			lb = !((pv == '_') || (pv >= 'a' && pv <= 'z') || (pv >= 'A' && pv <= 'Z') || (pv >= '0' && pv <= '9'));
+		}
+		int endp = pos + tok.length();
+		bool rb = (endp >= p_line.length());
+		if (!rb) {
+			char32_t nx = p_line[endp];
+			rb = !((nx == '_') || (nx >= 'a' && nx <= 'z') || (nx >= 'A' && nx <= 'Z') || (nx >= '0' && nx <= '9'));
+		}
+		if (lb && rb) {
+			return p_line.substr(0, pos) + String(p_repl) + p_line.substr(endp);
+		}
+		pos = endp;
+	}
+	return p_line;
+}
+
 static String _vita_downemit(const String &p_code, bool p_fragment) {
 	String c = p_code;
 
@@ -520,10 +559,54 @@ static String _vita_downemit(const String &p_code, bool p_fragment) {
 		if (!name.is_empty()) {
 			preamble += "#define " + name + " gl_FragColor\n";
 		}
-		preamble += "#define in varying\n";
-	} else {
-		preamble += "#define in attribute\n";
-		preamble += "#define out varying\n";
+	}
+
+	// Convert file-scope varying declarations (`in`/`out` qualifiers) to the
+	// attribute/varying VitaGL recognizes. Crucially this does NOT touch
+	// `in`/`out`/`inout` on FUNCTION PARAMETERS (inside `(...)`, which Cg accepts
+	// natively) — a blanket `#define out varying` corrupted those (e.g. an
+	// `out vec3 tangent` param became a VitaGL `VOUT()` marker, wrecking the
+	// function signature). Heuristic: a varying decl sits at brace depth 0, has
+	// no `(`, and ends in `;`; function signatures always contain `(`.
+	{
+		const char *in_repl = p_fragment ? "varying" : "attribute";
+		Vector<String> lines = c.split("\n");
+		int depth = 0;
+		Vector<int> conditional_depths;
+		for (int i = 0; i < lines.size(); i++) {
+			String ln = lines[i];
+			String t = ln.strip_edges();
+			// Alternative preprocessor branches can each open the same loop.
+			// Counting both (e.g. s4ao_inc.glsl) leaves a false function depth
+			// and prevents the following fragment inputs becoming varyings.
+			if (t.begins_with("#if")) {
+				conditional_depths.push_back(depth);
+			} else if (t.begins_with("#else") || t.begins_with("#elif")) {
+				if (!conditional_depths.is_empty()) {
+					depth = conditional_depths[conditional_depths.size() - 1];
+				}
+			} else if (t.begins_with("#endif") && !conditional_depths.is_empty()) {
+				conditional_depths.resize(conditional_depths.size() - 1);
+			}
+			if (depth == 0 && t.ends_with(";") && t.find("(") == -1) {
+				ln = _vita_replace_qualifier(ln, "out", "varying");
+				ln = _vita_replace_qualifier(ln, "in", in_repl);
+			}
+			lines.write[i] = ln;
+			for (int k = 0; k < ln.length(); k++) {
+				char32_t ch = ln[k];
+				if (ch == '{') {
+					depth++;
+				} else if (ch == '}') {
+					depth--;
+				}
+			}
+		}
+		String out;
+		for (int i = 0; i < lines.size(); i++) {
+			out += lines[i] + "\n";
+		}
+		c = out;
 	}
 	// Map the sampler types the SGX lacks onto sampler2D so their (now stubbed)
 	// declarations still parse. Their sampling was already rewritten in step 5.
@@ -551,6 +634,20 @@ static String _vita_downemit(const String &p_code, bool p_fragment) {
 	preamble += "#define mat4x2 float4x2\n";
 	preamble += "#define mat2x3 float2x3\n";
 	preamble += "#define mat3x2 float3x2\n";
+
+	// ES3 bit-cast builtins: SceShaccCg has the signed variants but not the
+	// unsigned ones (it even suggests intBitsToFloat). uint==int here, so the
+	// bit patterns match. `flat` (no-interpolation qualifier) has no Cg spelling
+	// VitaGL understands, so drop it — integer varyings still compile.
+	// SceShaccCg only has intBitsToFloat (int->float bits, one direction).
+	// unpackHalf2x16 (what the canvas uses) needs int->float, so uintBitsToFloat
+	// maps onto it (uint==int). The float->bits direction only appears in the
+	// stdlib's pack* helpers, which the canvas never calls, so stub it to 0 so
+	// those (dead-for-2D) functions still parse.
+	preamble += "#define floatBitsToUint(x) (0)\n";
+	preamble += "#define floatBitsToInt(x) (0)\n";
+	preamble += "#define uintBitsToFloat intBitsToFloat\n";
+	preamble += "#define flat\n";
 
 	return preamble + c;
 }
@@ -723,6 +820,9 @@ void ShaderGLES3::_compile_specialization(Version::Specialization &spec, uint32_
 		const char *cstr = cs.ptr();
 		GLint cstr_len = cs.length();
 		glShaderSource(spec.vert_id, 1, &cstr, &cstr_len);
+#ifdef VITA_ENABLED
+		vita_trace_shader("vertex", name.utf8().get_data(), cstr, "ux0:data/godot_shader_vertex.glsl");
+#endif
 		glCompileShader(spec.vert_id);
 
 		glGetShaderiv(spec.vert_id, GL_COMPILE_STATUS, &status);
@@ -774,6 +874,9 @@ void ShaderGLES3::_compile_specialization(Version::Specialization &spec, uint32_
 		const char *cstr = cs.ptr();
 		GLint cstr_len = cs.length();
 		glShaderSource(spec.frag_id, 1, &cstr, &cstr_len);
+#ifdef VITA_ENABLED
+		vita_trace_shader("fragment", name.utf8().get_data(), cstr, "ux0:data/godot_shader_fragment.glsl");
+#endif
 		glCompileShader(spec.frag_id);
 
 		glGetShaderiv(spec.frag_id, GL_COMPILE_STATUS, &status);
@@ -830,7 +933,15 @@ void ShaderGLES3::_compile_specialization(Version::Specialization &spec, uint32_
 		}
 	}
 
+#ifdef VITA_ENABLED
+	fprintf(stderr, "[vita-shader] %s link begin\n", name.utf8().get_data());
+	fflush(stderr);
+#endif
 	glLinkProgram(spec.id);
+#ifdef VITA_ENABLED
+	fprintf(stderr, "[vita-shader] %s link returned\n", name.utf8().get_data());
+	fflush(stderr);
+#endif
 
 	glGetProgramiv(spec.id, GL_LINK_STATUS, &status);
 	if (status == GL_FALSE) {

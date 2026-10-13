@@ -1,0 +1,12 @@
+{
+  "commit": "df63ce8211ce4a42d7092824ffa487bc9671105a",
+  "patch": "vitagl-vita-port.patch",
+  "make_options": {
+    "NO_SPLASHSCREEN": "1",
+    "NO_DEBUG": "0",
+    "HAVE_GLSL_UBOS": "1",
+    "HAVE_GLSL_TEXTURE_SIZE": "1",
+    "HAVE_SHARK_LOG": "1",
+    "LOG_ERRORS": "2"
+  }
+}

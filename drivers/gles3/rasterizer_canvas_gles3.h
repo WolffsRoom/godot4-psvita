@@ -181,6 +181,10 @@ public:
 
 	static_assert(sizeof(StateBuffer) % 16 == 0, "2D state UBO size must be a multiple of 16 bytes");
 
+#ifdef VITA_ENABLED
+	StateBuffer vita_canvas_state = {};
+#endif
+
 	struct PolygonBuffers {
 		GLuint vertex_buffer = 0;
 		GLuint vertex_array = 0;

@@ -19,6 +19,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef VITA_BOOT_ANIMATION_ENABLED
+#include "boot_splash.h"
+#endif
 #include "diag.h"
 #include "main.h"
 #include "so_util.h"
@@ -83,10 +86,21 @@ int main(int argc, char *argv[]) {
 
 	// Build stamp — lets us confirm from godot_loader.log which eboot actually
 	// ran (VitaGL instrumentation + fixed log path live in this build).
-	debugPrintf("Godot Vita loader BUILD=DIAG3 (vitaGL: FILE_LOG+SHARK+GLSL_TRANSLATOR, log=ux0:data/vitaGL.log)\n");
+	debugPrintf("BUILD_ID: %s\n", VITA_RUNTIME_BUILD_ID);
+	debugPrintf("RUNTIME_SHA256: %s\n", VITA_RUNTIME_SHA256);
+	debugPrintf("VITAGL_SHA256: %s\n", VITA_GL_SHA256);
 	debugPrintf("Godot Vita loader: loading app0:libgodot.so\n");
+#ifdef VITA_BOOT_ANIMATION_ENABLED
+	/* Optional native boot animation, played while loading and relocating.
+	 * Its Vita2D context is released before the Godot renderer starts. */
+	int boot_started = dodge_boot_splash_start();
+	debugPrintf("[boot-anim] enabled=%d\n", boot_started);
+#endif
 
 	if (so_load(&godot_mod, "app0:libgodot.so", LOAD_ADDRESS) < 0) {
+#ifdef VITA_BOOT_ANIMATION_ENABLED
+		dodge_boot_splash_stop();
+#endif
 		fatal_error("so_load failed (is libgodot.so in the VPK?)");
 	}
 	debugPrintf("so_load OK, relocating...\n");
@@ -94,9 +108,18 @@ int main(int argc, char *argv[]) {
 
 	debugPrintf("resolving %d imports...\n", (int)(default_dynlib_size / sizeof(so_default_dynlib)));
 	if (so_resolve(&godot_mod, default_dynlib, default_dynlib_size, 0) < 0) {
+#ifdef VITA_BOOT_ANIMATION_ENABLED
+		dodge_boot_splash_stop();
+#endif
 		fatal_error("so_resolve failed: an import is missing from default_dynlib");
 	}
 
+#ifdef VITA_BOOT_ANIMATION_ENABLED
+	/* Play at least one six-second cycle, then tear down Vita2D before
+	 * the engine initializes its native GXM resources. */
+	dodge_boot_splash_stop();
+	debugPrintf("[boot-anim] handoff to engine\n");
+#endif
 	so_flush_caches(&godot_mod);
 	so_initialize(&godot_mod);
 

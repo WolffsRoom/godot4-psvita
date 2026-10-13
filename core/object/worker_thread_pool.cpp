@@ -36,6 +36,7 @@
 #include "core/os/os.h"
 #include "core/os/safe_binary_mutex.h"
 #include "core/os/thread_safe.h"
+#include <stdio.h>
 
 WorkerThreadPool::Task *const WorkerThreadPool::ThreadData::YIELDING = (Task *)1;
 
@@ -54,10 +55,30 @@ WorkerThreadPool *WorkerThreadPool::singleton = nullptr;
 thread_local WorkerThreadPool::UnlockableLocks WorkerThreadPool::unlockable_locks[MAX_UNLOCKABLE_LOCKS];
 #endif
 
-void WorkerThreadPool::_process_task(Task *p_task) {
+void WorkerThreadPool::_process_task(Task *p_task, ThreadData *p_pool_worker) {
 #ifdef THREADS_ENABLED
-	int pool_thread_index = thread_ids[Thread::get_caller_id()];
-	ThreadData &curr_thread = threads[pool_thread_index];
+	// On Vita the emulated C++ TLS for Thread::caller_id is not guaranteed
+	// to resolve to the same key used when pool threads were created.
+	// The caller already has the worker's ThreadData; use it directly.
+	// Do not index thread_ids[] unchecked: an absent key otherwise inserts a
+	// default value that can equal threads.size(), causing UDF #255.
+	int pool_thread_index = p_pool_worker ? int(p_pool_worker->index) : get_thread_index();
+	ThreadData temporary_caller;
+	ThreadData *caller = nullptr;
+	if (pool_thread_index >= 0 && pool_thread_index < int(threads.size())) {
+		caller = &threads[pool_thread_index];
+	} else {
+		// The task can also be run synchronously by a non-pool caller.
+		// Preserve the task completion/semaphore logic with a temporary
+		// ThreadData instead of dereferencing an invalid pool entry.
+		fprintf(stderr, "[vita-worker] caller outside pool index=%d count=%u; executing inline\n",
+				pool_thread_index, (unsigned)threads.size());
+		fflush(stderr);
+		pool_thread_index = -1;
+		temporary_caller.pool = this;
+		caller = &temporary_caller;
+	}
+	ThreadData &curr_thread = *caller;
 	Task *prev_task = nullptr; // In case this is recursively called.
 
 	bool safe_for_nodes_backup = is_current_thread_safe_for_nodes();
@@ -217,7 +238,7 @@ void WorkerThreadPool::_thread_function(void *p_user) {
 		}
 
 		DEV_ASSERT(task_to_process);
-		thread_data->pool->_process_task(task_to_process);
+		thread_data->pool->_process_task(task_to_process, thread_data);
 	}
 }
 
@@ -244,7 +265,8 @@ void WorkerThreadPool::_post_tasks(Task **p_tasks, uint32_t p_count, bool p_high
 	uint32_t to_process = 0;
 	uint32_t to_promote = 0;
 
-	ThreadData *caller_pool_thread = thread_ids.has(Thread::get_caller_id()) ? &threads[thread_ids[Thread::get_caller_id()]] : nullptr;
+	int caller_index = get_thread_index();
+	ThreadData *caller_pool_thread = caller_index >= 0 ? &threads[caller_index] : nullptr;
 
 	for (uint32_t i = 0; i < p_count; i++) {
 		p_tasks[i]->low_priority = !p_high_priority;
@@ -418,7 +440,8 @@ Error WorkerThreadPool::wait_for_task_completion(TaskID p_task_id) {
 		return OK;
 	}
 
-	ThreadData *caller_pool_thread = thread_ids.has(Thread::get_caller_id()) ? &threads[thread_ids[Thread::get_caller_id()]] : nullptr;
+	int caller_index = get_thread_index();
+	ThreadData *caller_pool_thread = caller_index >= 0 ? &threads[caller_index] : nullptr;
 	if (caller_pool_thread && p_task_id <= caller_pool_thread->current_task->self) {
 		// Deadlock prevention:
 		// When a pool thread wants to wait for an older task, the following situations can happen:
@@ -565,7 +588,7 @@ void WorkerThreadPool::_wait_collaboratively(ThreadData *p_caller_pool_thread, T
 		}
 
 		if (task_to_process) {
-			_process_task(task_to_process);
+			_process_task(task_to_process, p_caller_pool_thread);
 		}
 	}
 }
@@ -759,7 +782,11 @@ void WorkerThreadPool::wait_for_group_task_completion(GroupID p_group) {
 
 int WorkerThreadPool::get_thread_index() const {
 	Thread::ID tid = Thread::get_caller_id();
-	return thread_ids.has(tid) ? thread_ids[tid] : -1;
+	if (!thread_ids.has(tid)) {
+		return -1;
+	}
+	int index = thread_ids[tid];
+	return (index >= 0 && index < int(threads.size())) ? index : -1;
 }
 
 WorkerThreadPool::TaskID WorkerThreadPool::get_caller_task_id() const {

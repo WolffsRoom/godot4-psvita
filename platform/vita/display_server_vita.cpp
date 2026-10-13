@@ -29,6 +29,9 @@
 /**************************************************************************/
 
 #include "display_server_vita.h"
+#include "gxm_bridge.h"
+#include "rasterizer_gxm_vita.h"
+#include <stdio.h>
 
 #include "core/input/input.h"
 #include "core/os/os.h"
@@ -71,8 +74,20 @@ DisplayServer *DisplayServerVita::create_func(const String &p_rendering_driver, 
 DisplayServerVita::DisplayServerVita(const String &p_rendering_driver, WindowMode p_mode, VSyncMode p_vsync_mode, uint32_t p_flags, const Vector2i &p_resolution, Error &r_error) {
 	r_error = ERR_UNAVAILABLE;
 
+	// Keep Godot's Compatibility selection for this experimental canvas.
+	// The package marker selects GXM before any VitaGL initialization.
+	FILE *gxm_marker = fopen("app0:gxm2d.cfg", "r");
+	if (gxm_marker) {
+		fclose(gxm_marker);
+		if (!vita_gxm_init()) {
+			ERR_FAIL_MSG("Native GXM initialization failed.");
+		}
+		RasterizerGXMVita::make_current();
+		r_error = OK;
+	}
+
 #ifdef GLES3_ENABLED
-	if (p_rendering_driver == "opengl3") {
+	if (r_error != OK && p_rendering_driver == "opengl3") {
 		gl_manager = memnew(GLManagerVita);
 		if (gl_manager->initialize() != OK) {
 			memdelete(gl_manager);

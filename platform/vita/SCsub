@@ -8,11 +8,31 @@ vita_files = [
     "os_vita.cpp",
     "display_server_vita.cpp",
     "gl_manager_vita.cpp",
+    "rasterizer_gxm_vita.cpp",
     "audio_driver_vita.cpp",
     "joypad_vita.cpp",
     "vita_posix_compat.c",  # POSIX funcs newlib declares but doesn't implement.
     "vita_cpp_compat.cpp",  # ...and the ones VitaSDK declares without extern "C".
 ]
+
+if env["vita_shared"]:
+    # Engine archives are SCons nodes; external SDK libraries are strings.
+    # Leave external imports unresolved for default_dynlib in the loader.
+    # Resolve engine archives as a group, pulling only reachable members.
+    # Whole-archive also pulls unused third-party tools (e.g. HarfBuzz subset
+    # and PDF painting) with hidden dependencies absent from this runtime.
+    shared_env = env.Clone()
+    shared_env["LIBS"] = [lib for lib in env.Flatten(env["LIBS"]) if not isinstance(lib, str)]
+    shared_env["LINKFLAGS"] = [
+        "-shared", "-nostdlib", "-fPIC",
+        "-Wl,--unresolved-symbols=ignore-all", "-Wl,-soname,libgodot.so",
+        "-Wl,--hash-style=sysv",
+    ]
+    shared_env["LINKCOM"] = "$CXX -o $TARGET $LINKFLAGS $SOURCES -Wl,--start-group $_LIBDIRFLAGS $_LIBFLAGS -Wl,--end-group"
+    shared_env["PROGSUFFIX"] = ".so"
+    runtime = shared_env.add_program("#bin/libgodot", vita_files)
+    Default(runtime)
+    Return()
 
 prog = env.add_program("#bin/godot", vita_files)
 

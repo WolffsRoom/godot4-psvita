@@ -38,6 +38,7 @@
 #include "servers/audio/audio_server.h"
 
 #include <dlfcn.h>
+#include <stdio.h>
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/rng.h>
@@ -100,14 +101,29 @@ void OS_Vita::run() {
 		return;
 	}
 
+	fprintf(stderr, "[vita-loop] initialize begin\n");
+	fflush(stderr);
 	main_loop->initialize();
+	fprintf(stderr, "[vita-loop] initialize complete\n");
+	fflush(stderr);
+	unsigned int diagnostic_frame = 0;
 
 	while (!force_quit) {
 		// DisplayServerVita::process_events() pumps SceCtrl / SceTouch / SceMotion
 		// and feeds Input. It must run before Main::iteration().
 		DisplayServer::get_singleton()->process_events();
 
-		if (Main::iteration()) {
+		if (diagnostic_frame < 3) {
+			fprintf(stderr, "[vita-loop] frame %u begin\n", diagnostic_frame);
+			fflush(stderr);
+		}
+		bool quit = Main::iteration();
+		if (diagnostic_frame < 3) {
+			fprintf(stderr, "[vita-loop] frame %u complete\n", diagnostic_frame);
+			fflush(stderr);
+			diagnostic_frame++;
+		}
+		if (quit) {
 			break; // Engine requested quit.
 		}
 	}

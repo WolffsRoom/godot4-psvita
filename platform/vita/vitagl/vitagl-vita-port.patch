@@ -1,5 +1,5 @@
---- /mnt/c/tmp/vitaGL-nosplash-src/source/utils/glsl_utils.c	2026-07-16 21:26:08.029739600 -0300
-+++ source/utils/glsl_utils.c	2026-08-19 00:06:44.719097561 -0300
+--- a/source/utils/glsl_utils.c
++++ b/source/utils/glsl_utils.c
 @@ -27,7 +27,7 @@
  #include "glsl_utils.h"
  #include "preprocessor/preprocessor_c.h"
@@ -78,8 +78,8 @@
  				start--;
  			}
  			start++;
---- /mnt/c/tmp/vitaGL-nosplash-src/source/debug.c	2026-07-16 21:26:07.992705900 -0300
-+++ source/debug.c	2026-08-18 23:49:18.604538515 -0300
+--- a/source/debug.c
++++ b/source/debug.c
 @@ -222,7 +222,7 @@
  	va_start(arg, format);
  	vsnprintf(msg, sizeof(msg), format, arg);
@@ -89,8 +89,8 @@
  	if (log >= 0) {
  		sceIoWrite(log, msg, strlen(msg));
  		sceIoClose(log);
---- /mnt/c/tmp/vitaGL-nosplash-src/source/buffers.c	2026-07-16 21:26:07.989942900 -0300
-+++ source/buffers.c	2026-08-18 23:49:18.604859038 -0300
+--- a/source/buffers.c
++++ b/source/buffers.c
 @@ -36,7 +36,7 @@
  void *texture_object; // Texture object address for vgl* draw pipeline
  void *index_object; // Index object address for vgl* draw pipeline
@@ -109,8 +109,8 @@
  			mark_as_dirty(gpu_buf->vertex_attrib_pool);
  			vgl_free(gpu_buf);
  		}
---- /mnt/c/tmp/vitaGL-nosplash-src/source/custom_shaders.c	2026-07-16 21:26:07.991668500 -0300
-+++ source/custom_shaders.c	2026-08-18 23:49:18.607059594 -0300
+--- a/source/custom_shaders.c
++++ b/source/custom_shaders.c
 @@ -532,6 +532,8 @@
  
  static inline __attribute__((always_inline)) size_t serialized_shader_size(shader *s, GLboolean have_bindings, uint32_t *matrix_uniforms_num) {
@@ -158,8 +158,8 @@
  #ifndef SKIP_ERROR_HANDLING
  	if (index >= VERTEX_ATTRIBS_NUM) {
  		SET_GL_ERROR(GL_INVALID_VALUE)
---- /mnt/c/tmp/vitaGL-nosplash-src/source/shared.h	2026-07-16 21:26:08.013587200 -0300
-+++ source/shared.h	2026-08-18 23:49:18.605223264 -0300
+--- a/source/shared.h
++++ b/source/shared.h
 @@ -1086,7 +1086,8 @@
  extern vector4f clear_rgba_val; // Current clear color for glClear
  extern viewport gl_viewport; // Current viewport state
@@ -170,14 +170,35 @@
  extern shad_mode shading_mode;
  
  // Culling
---- /mnt/c/tmp/vitaGL-nosplash-src/Makefile	2026-07-16 21:26:07.802746100 -0300
-+++ Makefile	2026-08-18 23:51:31.218130579 -0300
-@@ -12,7 +12,7 @@
+--- a/Makefile
++++ b/Makefile
+@@ -12,7 +12,8 @@
  CC      = $(PREFIX)-gcc
  CXX     = $(PREFIX)-g++
  AR      = $(PREFIX)-gcc-ar
 -CFLAGS  = -g -Wl,-q -O3 -ffast-math -mtune=cortex-a9 -mfpu=neon -Wno-incompatible-pointer-types -Wno-stringop-overflow -mfp16-format=ieee \
++VGL_GIT_HASH ?= $(shell git rev-parse --short HEAD)
 +CFLAGS  = -g -Wl,-q -O3 -ffast-math -mtune=cortex-a9 -mfpu=neon -mfloat-abi=hard -Wno-incompatible-pointer-types -Wno-stringop-overflow -mfp16-format=ieee \
- 	-DVGL_GIT_HASH='"$(shell git rev-parse --short HEAD)"'
+-	-DVGL_GIT_HASH='"$(shell git rev-parse --short HEAD)"'
++	-DVGL_GIT_HASH='"$(VGL_GIT_HASH)"'
  ASFLAGS = $(CFLAGS)
  
+--- a/source/custom_shaders.c
++++ b/source/custom_shaders.c
+@@ -3223,6 +3223,7 @@ void glBindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offs
+ 	}
+ #endif
+ 
++	uniform_array_unit = buffer;
+ 	ubo_buf[index] = (vbo *)buffer;
+ 	ubo_offset[index] = offset;
+ }
+@@ -3238,6 +3239,7 @@ void glBindBufferBase(GLenum target, GLuint index, GLuint buffer) {
+ 	}
+ #endif
+ 
++	uniform_array_unit = buffer;
+ 	ubo_buf[index] = (vbo *)buffer;
+ 	ubo_offset[index] = 0;
+ }
+
