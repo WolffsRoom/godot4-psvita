@@ -8,6 +8,10 @@ const VOLUME_CHOICES := [0, 25, 50, 75, 100]
 const FPS_CHOICES := [30, 45, 60]
 
 var settings_open := false
+# _input may be swallowed by UI focus on Vita. Polling in _process is a
+# second path; the latch prevents a single press from toggling twice.
+var triangle_held := false
+var message_tween: Tween
 var selection := 0
 var selected_speed := 400
 var selected_volume := 100
@@ -17,7 +21,26 @@ func _ready() -> void:
     # The HUD must receive menu input even when the rest of the game is paused.
     process_mode = Node.PROCESS_MODE_ALWAYS
     $SettingsPanel.hide()
+    _sync_start_controls()
     _refresh_settings()
+
+func _process(_delta: float) -> void:
+    var now := Input.is_joy_button_pressed(0, JOY_BUTTON_Y)
+    if now and not triangle_held:
+        _press_triangle()
+    elif not now:
+        triangle_held = false
+
+func _press_triangle() -> void:
+    if triangle_held:
+        return
+    triangle_held = true
+    _menu_action(&"toggle")
+
+func _sync_start_controls() -> void:
+    var show_start: bool = $StartButton.visible and not settings_open
+    $SettingsButton.visible = show_start
+    $SettingsHint.visible = show_start
 
 func set_settings(speed: int, volume: int, fps: int) -> void:
     selected_speed = speed
@@ -53,7 +76,7 @@ func open_settings() -> void:
     settings_open = true
     selection = 0
     $SettingsPanel.show()
-    $SettingsButton.hide()
+    _sync_start_controls()
     _refresh_settings()
     get_tree().paused = true
     printerr("[dodge-vita] settings open")
@@ -63,7 +86,7 @@ func close_settings() -> void:
         return
     settings_open = false
     $SettingsPanel.hide()
-    $SettingsButton.visible = $StartButton.visible
+    _sync_start_controls()
     get_tree().paused = false
     printerr("[dodge-vita] settings closed")
 
@@ -125,14 +148,17 @@ func _input(event: InputEvent) -> void:
     if event is InputEventJoypadButton and event.pressed and not event.is_echo():
         var action := &""
         match event.button_index:
-            JOY_BUTTON_Y: action = &"toggle"  # Triangle on Vita
+            JOY_BUTTON_Y: 
+                _press_triangle()
+                get_viewport().set_input_as_handled()
+                return
             JOY_BUTTON_B: action = &"back"    # Circle
             JOY_BUTTON_A: action = &"accept"  # Cross
             JOY_BUTTON_DPAD_UP: action = &"up"
             JOY_BUTTON_DPAD_DOWN: action = &"down"
             JOY_BUTTON_DPAD_LEFT: action = &"left"
             JOY_BUTTON_DPAD_RIGHT: action = &"right"
-        if action == &"toggle" or (settings_open and action != &""):
+        if settings_open and action != &"":
             _menu_action(action)
             get_viewport().set_input_as_handled()
     elif event is InputEventKey and event.pressed and not event.echo:
@@ -150,8 +176,13 @@ func _input(event: InputEvent) -> void:
             get_viewport().set_input_as_handled()
 
 func show_message(text):
+    if message_tween != null and message_tween.is_running():
+        message_tween.kill()
     $MessageLabel.text = text
+    $MessageLabel.modulate.a = 0.0
     $MessageLabel.show()
+    message_tween = create_tween()
+    message_tween.tween_property($MessageLabel, "modulate:a", 1.0, 0.24)
     $MessageTimer.start()
 
 func show_game_over():
@@ -161,14 +192,14 @@ func show_game_over():
     $MessageLabel.show()
     await get_tree().create_timer(1).timeout
     $StartButton.show()
-    $SettingsButton.show()
+    _sync_start_controls()
 
 func update_score(score):
     $ScoreLabel.text = str(score)
 
 func hide_start_controls() -> void:
     $StartButton.hide()
-    $SettingsButton.hide()
+    _sync_start_controls()
 
 func _on_StartButton_pressed():
     if settings_open:

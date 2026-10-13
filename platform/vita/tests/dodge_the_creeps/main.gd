@@ -4,6 +4,8 @@ extends Node
 var score: int = 0
 
 const SETTINGS_FILE := "user://dodge_vita_settings.cfg"
+# Avoid high-frequency synchronous log writes on real hardware/audio mixer.
+const VITA_DIAGNOSTICS := false
 const SPEED_CHOICES := [250, 400, 550]
 const VOLUME_CHOICES := [0, 25, 50, 75, 100]
 const FPS_CHOICES := [30, 45, 60]
@@ -23,6 +25,8 @@ var chosen_speed := 400
 var chosen_volume := 100
 var chosen_fps := 60
 var background_target: Color = BACKGROUND_COLORS[0]
+var music_fade: Tween
+var death_sequence: int = 0
 
 func _load_settings() -> void:
 	var cfg := ConfigFile.new()
@@ -76,12 +80,28 @@ func _update_background_for_score() -> void:
 func game_over():
 	$ScoreTimer.stop()
 	$MobTimer.stop()
-	$HUD.show_game_over()
-	$Music.stop()
+	death_sequence += 1
+	var sequence := death_sequence
+	if music_fade != null and music_fade.is_running():
+		music_fade.kill()
+	# Avoid the original abrupt music cut at the exact collision frame.
+	music_fade = create_tween()
+	music_fade.tween_property($Music, "volume_db", -45.0, 0.30)
+	music_fade.tween_callback($Music.stop)
 	$DeathSound.play()
+	# Let the player's sprite burst and fade finish before showing Game Over.
+	await get_tree().create_timer(0.58).timeout
+	if sequence == death_sequence:
+		$HUD.show_game_over()
 
 
 func new_game():
+	$HUD.hide_start_controls()
+	death_sequence += 1
+	if music_fade != null and music_fade.is_running():
+		music_fade.kill()
+	$Music.volume_db = -4.0
+	$DeathSound.stop()
 	get_tree().call_group(&"mobs", &"queue_free")
 	score = 0
 	$Player.start($StartPosition.position)
@@ -140,16 +160,26 @@ func _ready() -> void:
 		PhysicsServer2D.get_process_info(PhysicsServer2D.INFO_ACTIVE_OBJECTS),
 		" joypads=", Input.get_connected_joypads(), " joy_name=",
 		Input.get_joy_name(0), " device0_known=", Input.is_joy_known(0))
+	# WAV imports may default to non-looping even when importer metadata
+	# requests looping; make it explicit in the running Godot scene.
+	if $Music.stream is AudioStreamWAV:
+		var music_wav: AudioStreamWAV = $Music.stream
+		music_wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		music_wav.loop_begin = 0
+		music_wav.loop_end = maxi(1,
+			int(round(music_wav.get_length() * float(music_wav.get_mix_rate()))) - 1)
 	_load_settings()
 	_apply_settings()
 	_update_background_for_score()
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton and event.pressed:
-		printerr("[dodge-vita] input button=", event.button_index, " device=", event.device)
+		if VITA_DIAGNOSTICS:
+			printerr("[dodge-vita] input button=", event.button_index, " device=", event.device)
 		if event.button_index == JOY_BUTTON_A or event.button_index == JOY_BUTTON_START:
 			if $HUD/StartButton.visible and not $HUD.settings_open:
-				printerr("[dodge-vita] controller start pressed=", event.button_index)
+				if VITA_DIAGNOSTICS:
+					printerr("[dodge-vita] controller start pressed=", event.button_index)
 				$HUD.hide_start_controls()
 				new_game()
 				get_viewport().set_input_as_handled()
@@ -161,12 +191,15 @@ func _process(delta: float) -> void:
 	# start screen works even when a focused UI Control consumes a joy event.
 	var start_now := Input.is_joy_button_pressed(0, JOY_BUTTON_A) or Input.is_joy_button_pressed(0, JOY_BUTTON_START)
 	if start_now and not vita_start_was_pressed and $HUD/StartButton.visible and not $HUD.settings_open:
-		printerr("[dodge-vita] controller polling start (X/START)")
+		if VITA_DIAGNOSTICS:
+			printerr("[dodge-vita] controller polling start (X/START)")
 		$HUD.hide_start_controls()
 		new_game()
 	vita_start_was_pressed = start_now
 	# Score changes the target color; blending avoids a sudden flash.
 	$ColorRect.color = $ColorRect.color.lerp(background_target, minf(delta * 2.0, 1.0))
+	if not VITA_DIAGNOSTICS:
+		return
 	vita_diag_elapsed += delta
 	if vita_diag_elapsed >= 5.0:
 		vita_diag_elapsed = 0.0

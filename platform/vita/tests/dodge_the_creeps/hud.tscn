@@ -62,7 +62,7 @@ offset_right = 410.0
 offset_bottom = 539.0
 theme_override_fonts/font = ExtResource("2_2jm3i")
 theme_override_font_sizes/font_size = 20
-text = "TRIANGLE: SETTINGS  |  F1: PC"
+text = "TRIANGLE: SETTINGS"
 
 [node name="SettingsButton" type="Button" parent="."]
 offset_left = 25.0

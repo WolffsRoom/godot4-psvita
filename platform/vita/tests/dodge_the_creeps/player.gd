@@ -4,6 +4,9 @@ signal hit
 
 @export var speed = 400 # How fast the player will move (pixels/sec).
 var screen_size # Size of the game window.
+var dying := false
+var death_tween: Tween
+const DEATH_DURATION := 0.54
 # The original GPUParticles2D trail is unsupported by the native GXM canvas.
 # Render five short-lived translucent sprites instead (texture-quad path).
 var vita_trail_cooldown := 0.0
@@ -59,6 +62,8 @@ func _ready():
 
 
 func _process(delta):
+	if dying:
+		return
 	var velocity = Vector2.ZERO # The player's movement vector.
 	if Input.is_action_pressed(&"move_right"):
 		velocity.x += 1
@@ -91,16 +96,57 @@ func _process(delta):
 
 
 func start(pos):
+	if death_tween != null and death_tween.is_running():
+		death_tween.kill()
 	_clear_vita_trail()
+	dying = false
+	$AnimatedSprite2D.scale = Vector2(0.5, 0.5)
+	$AnimatedSprite2D.rotation = 0.0
+	$AnimatedSprite2D.modulate = Color.WHITE
 	position = pos
 	rotation = 0
 	show()
 	$CollisionShape2D.disabled = false
 
 
+func _emit_death_fragments() -> void:
+	# Texture-based particles require no GPUParticles2D or custom GXM shaders.
+	var anim: AnimatedSprite2D = $AnimatedSprite2D
+	var texture = anim.sprite_frames.get_frame_texture(anim.animation, anim.frame)
+	if texture == null:
+		return
+	for i in 6:
+		var shard := Sprite2D.new()
+		shard.texture = texture
+		shard.scale = Vector2(0.30, 0.30)
+		shard.z_as_relative = false
+		shard.z_index = 12
+		shard.modulate = Color(1.0, 0.72, 0.48, 0.48)
+		get_parent().add_child(shard)
+		shard.global_position = anim.global_position
+		var angle := float(i) * TAU / 6.0
+		var direction := Vector2(cos(angle), sin(angle))
+		var tween := shard.create_tween().set_parallel(true)
+		tween.tween_property(shard, "position", shard.position + direction * 72.0,
+			DEATH_DURATION).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tween.tween_property(shard, "modulate:a", 0.0, DEATH_DURATION)
+		tween.chain().tween_callback(shard.queue_free)
+
+
 func _on_body_entered(_body):
+	if dying:
+		return
+	dying = true
 	_clear_vita_trail()
-	hide() # Player disappears after being hit.
-	hit.emit()
-	# Must be deferred as we can't change physics properties on a physics callback.
+	# Prevent multiple collisions while the death animation is playing.
 	$CollisionShape2D.set_deferred(&"disabled", true)
+	$AnimatedSprite2D.stop()
+	_emit_death_fragments()
+	death_tween = create_tween().set_parallel(true)
+	death_tween.tween_property($AnimatedSprite2D, "rotation", PI * 0.65,
+		DEATH_DURATION).set_trans(Tween.TRANS_SINE)
+	death_tween.tween_property($AnimatedSprite2D, "scale", Vector2(0.08, 0.08),
+		DEATH_DURATION).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	death_tween.tween_property($AnimatedSprite2D, "modulate:a", 0.0, DEATH_DURATION)
+	death_tween.chain().tween_callback(hide)
+	hit.emit()

@@ -36,3 +36,18 @@ the production shell-based loader and is not a general compatibility proof.
 
 The independent packaged Vita release lives in SDKVita/DodgeCreepsVita;
 GitHub contains the reproducible engine fixture instead.
+
+## Audio, controller and death-animation update
+
+- Predecoded 48 kHz stereo PCM 16-bit WAV assets replace the in-game OGG
+  decoding path to reduce CPU spikes. The soundtrack explicitly loops
+  across its entire valid sample range.
+- Default high-frequency diagnostic logging has been disabled in main.gd.
+- Triangle now has an input-event handler and a polled-state fallback;
+  the on-screen hint appears only when Start is visible and no longer
+  references PC keyboard shortcuts.
+- On collision, the player spins/fades with a six-sprite burst and the
+  music fades out before showing Game Over.
+- Run host_audio_death_smoke.gd for input fallback, audio format, loop
+  boundaries, visibility, animation and restart-screen regression checks.
+  This update needs real PS Vita testing for crackling and visuals.

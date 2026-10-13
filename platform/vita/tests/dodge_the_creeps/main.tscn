@@ -4,8 +4,8 @@
 [ext_resource type="PackedScene" uid="uid://cao351pllxqpa" path="res://mob.tscn" id="2_50pww"]
 [ext_resource type="PackedScene" uid="uid://bwhlkliwp13p4" path="res://player.tscn" id="3_veqnc"]
 [ext_resource type="PackedScene" uid="uid://b0efehuavobda" path="res://hud.tscn" id="4_0qnje"]
-[ext_resource type="AudioStream" uid="uid://sgfduhhw4pno" path="res://art/music.ogg" id="5_55d8h"]
-[ext_resource type="AudioStream" uid="uid://td2mgko63p61" path="res://art/gameover.wav" id="6_hp1r0"]
+[ext_resource type="AudioStream" path="res://art/music_vita.wav" id="5_55d8h"]
+[ext_resource type="AudioStream" path="res://art/gameover_vita.wav" id="6_hp1r0"]
 
 [sub_resource type="Curve2D" id="1"]
 _data = {
@@ -48,9 +48,11 @@ curve = SubResource("1")
 
 [node name="Music" type="AudioStreamPlayer" parent="." unique_id=267371681]
 stream = ExtResource("5_55d8h")
+volume_db = -4.0
 
 [node name="DeathSound" type="AudioStreamPlayer" parent="." unique_id=1715684712]
 stream = ExtResource("6_hp1r0")
+volume_db = -5.0
 
 [connection signal="hit" from="Player" to="." method="game_over"]
 [connection signal="timeout" from="MobTimer" to="." method="_on_MobTimer_timeout"]
