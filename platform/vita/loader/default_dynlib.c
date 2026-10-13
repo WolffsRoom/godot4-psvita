@@ -543,6 +543,8 @@ extern int roundf();
 extern int sceAudioOutOpenPort();
 extern int sceAudioOutOutput();
 extern int sceAudioOutReleasePort();
+extern int sceAudioOutSetAlcMode();
+extern int sceAudioOutSetVolume();
 extern int sceClibPrintf();
 extern int sceCtrlPeekBufferPositive();
 extern int sceCtrlSetSamplingMode();
@@ -1204,6 +1206,8 @@ so_default_dynlib default_dynlib[] = {
   { "sceAudioOutOpenPort", (uintptr_t)&sceAudioOutOpenPort },
   { "sceAudioOutOutput", (uintptr_t)&sceAudioOutOutput },
   { "sceAudioOutReleasePort", (uintptr_t)&sceAudioOutReleasePort },
+  { "sceAudioOutSetAlcMode", (uintptr_t)&sceAudioOutSetAlcMode },
+  { "sceAudioOutSetVolume", (uintptr_t)&sceAudioOutSetVolume },
   { "sceClibPrintf", (uintptr_t)&sceClibPrintf },
   { "sceCtrlPeekBufferPositive", (uintptr_t)&sceCtrlPeekBufferPositive },
   { "sceCtrlSetSamplingMode", (uintptr_t)&sceCtrlSetSamplingMode },

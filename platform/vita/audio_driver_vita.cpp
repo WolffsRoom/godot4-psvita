@@ -29,15 +29,19 @@
 /**************************************************************************/
 
 #include "audio_driver_vita.h"
+#include "audio_pcm_vita.h"
 
 #include "core/os/os.h"
 
 #include <psp2/kernel/threadmgr.h>
+#include <stdio.h>
 
-// Hardware audio is block-based. Low block sizes are sensitive to the
-// occasional slow frame and IO stall on the Vita, causing audible crackling.
-// Keep the PCM mixer stereo at 48 kHz (required by MAIN), with some buffering
-// headroom and a higher-priority audio worker for stable output cadence.
+// The native Vita mixer delivers signed 16.16 PCM from Godot. Compare with
+// DeltaruneVita's hardware path: it uses the Vita BGM port for soundtrack
+// playback, explicitly sets per-channel hardware gain and queues PCM16 buffers.
+// Keep Godot's own mixer (required for AudioServer and its bus effects), but
+// use a BGM output route with conservative hardware gain and explicit PCM16
+// conversion. Hardware gain is separate from project/master-bus volume.
 
 Error AudioDriverVita::init() {
 	mix_rate = 48000;
@@ -51,9 +55,28 @@ Error AudioDriverVita::init() {
 	samples_in = memnew_arr(int32_t, buffer_size * channels);
 	samples_out = memnew_arr(int16_t, buffer_size * channels);
 
-	port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, buffer_size, mix_rate, SCE_AUDIO_OUT_MODE_STEREO);
+	// BGM is the same playback route used by DeltaruneVita for its game
+	// soundtrack. If it is unavailable, retain MAIN for compatibility.
+	port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_BGM, buffer_size, mix_rate, SCE_AUDIO_OUT_MODE_STEREO);
+	bool using_bgm = port >= 0;
+	if (port < 0) {
+		port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, buffer_size, mix_rate, SCE_AUDIO_OUT_MODE_STEREO);
+	}
 	ERR_FAIL_COND_V_MSG(port < 0, ERR_CANT_OPEN, "sceAudioOutOpenPort failed.");
 
+	// The BGM port has a hardware automatic-level-control path. Disable it
+	// to avoid aggressive gain pumping on continuous music. Leave plenty of
+	// headroom at the output device itself, independent of Godot bus gains.
+	if (using_bgm) {
+		sceAudioOutSetAlcMode(SCE_AUDIO_ALC_OFF);
+	}
+	constexpr int hardware_gain = (SCE_AUDIO_OUT_MAX_VOL * 72) / 100;
+	int channel_volumes[2] = { hardware_gain, hardware_gain };
+	int volume_rc = sceAudioOutSetVolume(port,
+			(SceAudioOutChannelFlag)(SCE_AUDIO_VOLUME_FLAG_L_CH | SCE_AUDIO_VOLUME_FLAG_R_CH),
+			channel_volumes);
+	fprintf(stderr, "[vita-audio] route=%s port=%d frames=%u rate=%u hardware_gain=%d/32768 volume_rc=0x%08x\n",
+			using_bgm ? "BGM" : "MAIN", port, buffer_size, mix_rate, hardware_gain, (unsigned int)volume_rc);
 	return OK;
 }
 
@@ -71,9 +94,7 @@ void AudioDriverVita::thread_func(void *p_udata) {
 		ad->lock();
 		if (ad->active) {
 			ad->audio_server_process(ad->buffer_size, ad->samples_in);
-			for (unsigned int i = 0; i < ad->buffer_size * ad->channels; i++) {
-				ad->samples_out[i] = ad->samples_in[i] >> 16;
-			}
+			VitaAudioPCM::convert(ad->samples_in, ad->samples_out, ad->buffer_size, ad->channels);
 		} else {
 			for (unsigned int i = 0; i < ad->buffer_size * ad->channels; i++) {
 				ad->samples_out[i] = 0;
@@ -84,7 +105,16 @@ void AudioDriverVita::thread_func(void *p_udata) {
 		// Hardware output blocks until the current buffer has been consumed.
 		// Keep this call outside the mixing lock to avoid holding up the main
 		// thread during a slow/busy speaker/headphone output operation.
-		sceAudioOutOutput(ad->port, ad->samples_out);
+		int output_result = sceAudioOutOutput(ad->port, ad->samples_out);
+		if (output_result < 0) {
+			// Never spam logs from this high-priority thread. A failed block is
+			// audible as a crack/pop, so preserve one error code for diagnosis.
+			static bool output_error_reported = false;
+			if (!output_error_reported) {
+				output_error_reported = true;
+				fprintf(stderr, "[vita-audio] output_failed result=0x%08x\n", (unsigned int)output_result);
+			}
+		}
 	}
 	ad->thread_exited = true;
 }
