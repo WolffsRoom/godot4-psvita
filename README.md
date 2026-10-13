@@ -1,12 +1,20 @@
 <p align="center">
-  <img src="Logo.png" alt="Godot 4 Vita" width="300">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/f8adb30c-2cc6-45ce-8916-a87c12c30840">
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/e4fe6c13-66c2-498a-9c5c-d935de33098f">
+    <img src="https://github.com/user-attachments/assets/e4fe6c13-66c2-498a-9c5c-d935de33098f" alt="Godot4Vita" width="480">
+  </picture>
 </p>
 
-# Godot 4 Vita
+<h1 align="center">GODOT 4 VITA</h1>
 
-An experimental port of **Godot 4.8-dev7 to PlayStation Vita**, focused on running 2D games on real hardware. It provides Vita input and audio, a native GXM canvas renderer, and a shared-library loader for the Godot runtime.
+<p align="center">
+  <strong>An experimental port of Godot 4.X to PlayStation Vita</strong>
+</p>
 
-> **Development build:** This is not an official Godot release or a general-purpose Vita export template.
+<p align="center">
+  <em>This is not an official Godot release or a general-purpose Vita export template.</em>
+</p>
 
 ## Architecture
 
