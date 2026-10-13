@@ -51,3 +51,12 @@ GitHub contains the reproducible engine fixture instead.
 - Run host_audio_death_smoke.gd for input fallback, audio format, loop
   boundaries, visibility, animation and restart-screen regression checks.
   This update needs real PS Vita testing for crackling and visuals.
+
+## Input/audio hardware regression
+
+The subsequent fix polls D-pad, Cross and Circle in the always-processing HUD
+even when Godot pauses the game and swallows GUI input events; controls also
+repeat when held. The audio driver's buffer size is raised to 2048 samples
+and the soundtrack/player gains were reduced to improve Vita playback.
+host_vita_dpad_paused_smoke.gd covers controls under forced loss of _input.
+New sound quality awaits hardware verification.

@@ -34,19 +34,19 @@
 
 #include <psp2/kernel/threadmgr.h>
 
-// NOTE: This is a straight port target of the 3.x AudioDriverVita. The body is
-// left as a documented stub so the platform links; fill in from the 3.x
-// audio_driver_vita.cpp (sceAudioOutOpenPort / sceAudioOutOutput on a worker
-// thread). The only 4.x-specific change is audio_server_process() ->
-// AudioDriver::audio_server_process() signature parity, which already matches.
+// Hardware audio is block-based. Low block sizes are sensitive to the
+// occasional slow frame and IO stall on the Vita, causing audible crackling.
+// Keep the PCM mixer stereo at 48 kHz (required by MAIN), with some buffering
+// headroom and a higher-priority audio worker for stable output cadence.
 
 Error AudioDriverVita::init() {
 	mix_rate = 48000;
 	speaker_mode = SPEAKER_MODE_STEREO;
 	channels = 2;
 
-	// SCE_AUDIO_OUT_MODE_STEREO, granularity 1024 samples is what the 3.x port used.
-	buffer_size = 1024;
+	// 2048 samples = ~42.7 ms at 48 kHz, up from ~21.3 ms.
+	// Main port accepts multiples of 64 up to SCE_AUDIO_MAX_LEN.
+	buffer_size = 2048;
 
 	samples_in = memnew_arr(int32_t, buffer_size * channels);
 	samples_out = memnew_arr(int16_t, buffer_size * channels);
@@ -59,7 +59,9 @@ Error AudioDriverVita::init() {
 
 void AudioDriverVita::start() {
 	active = true;
-	thread.start(AudioDriverVita::thread_func, this);
+	Thread::Settings settings;
+	settings.priority = Thread::PRIORITY_HIGH;
+	thread.start(AudioDriverVita::thread_func, this, settings);
 }
 
 void AudioDriverVita::thread_func(void *p_udata) {
@@ -79,6 +81,9 @@ void AudioDriverVita::thread_func(void *p_udata) {
 		}
 		ad->unlock();
 
+		// Hardware output blocks until the current buffer has been consumed.
+		// Keep this call outside the mixing lock to avoid holding up the main
+		// thread during a slow/busy speaker/headphone output operation.
 		sceAudioOutOutput(ad->port, ad->samples_out);
 	}
 	ad->thread_exited = true;

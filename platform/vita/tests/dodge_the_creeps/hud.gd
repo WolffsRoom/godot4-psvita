@@ -11,6 +11,10 @@ var settings_open := false
 # _input may be swallowed by UI focus on Vita. Polling in _process is a
 # second path; the latch prevents a single press from toggling twice.
 var triangle_held := false
+var menu_held_action: StringName = &""
+var menu_repeat_delay := 0.0
+const MENU_REPEAT_START := 0.35
+const MENU_REPEAT_STEP := 0.12
 var message_tween: Tween
 var selection := 0
 var selected_speed := 400
@@ -24,12 +28,45 @@ func _ready() -> void:
     _sync_start_controls()
     _refresh_settings()
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+    # Native Vita events can be consumed by focused Controls while paused.
+    # Reading the joypad state in PROCESS_MODE_ALWAYS makes every menu action
+    # work through the exact same mechanism that fixed Triangle.
     var now := Input.is_joy_button_pressed(0, JOY_BUTTON_Y)
     if now and not triangle_held:
         _press_triangle()
     elif not now:
         triangle_held = false
+    if not settings_open:
+        menu_held_action = &""
+        menu_repeat_delay = 0.0
+        return
+    var action := _poll_menu_action()
+    if action != menu_held_action:
+        menu_held_action = action
+        menu_repeat_delay = MENU_REPEAT_START
+        if action != &"":
+            _menu_action(action)
+    elif action != &"" and action in [&"up", &"down", &"left", &"right"]:
+        menu_repeat_delay -= delta
+        if menu_repeat_delay <= 0.0:
+            _menu_action(action)
+            menu_repeat_delay = MENU_REPEAT_STEP
+
+func _poll_menu_action() -> StringName:
+    if Input.is_joy_button_pressed(0, JOY_BUTTON_DPAD_UP):
+        return &"up"
+    if Input.is_joy_button_pressed(0, JOY_BUTTON_DPAD_DOWN):
+        return &"down"
+    if Input.is_joy_button_pressed(0, JOY_BUTTON_DPAD_LEFT):
+        return &"left"
+    if Input.is_joy_button_pressed(0, JOY_BUTTON_DPAD_RIGHT):
+        return &"right"
+    if Input.is_joy_button_pressed(0, JOY_BUTTON_B):
+        return &"back"
+    if Input.is_joy_button_pressed(0, JOY_BUTTON_A):
+        return &"accept"
+    return &""
 
 func _press_triangle() -> void:
     if triangle_held:
@@ -74,6 +111,8 @@ func open_settings() -> void:
     if settings_open:
         return
     settings_open = true
+    menu_held_action = &""
+    menu_repeat_delay = 0.0
     selection = 0
     $SettingsPanel.show()
     _sync_start_controls()
@@ -85,6 +124,8 @@ func close_settings() -> void:
     if not settings_open:
         return
     settings_open = false
+    menu_held_action = &""
+    menu_repeat_delay = 0.0
     $SettingsPanel.hide()
     _sync_start_controls()
     get_tree().paused = false
@@ -152,14 +193,9 @@ func _input(event: InputEvent) -> void:
                 _press_triangle()
                 get_viewport().set_input_as_handled()
                 return
-            JOY_BUTTON_B: action = &"back"    # Circle
-            JOY_BUTTON_A: action = &"accept"  # Cross
-            JOY_BUTTON_DPAD_UP: action = &"up"
-            JOY_BUTTON_DPAD_DOWN: action = &"down"
-            JOY_BUTTON_DPAD_LEFT: action = &"left"
-            JOY_BUTTON_DPAD_RIGHT: action = &"right"
-        if settings_open and action != &"":
-            _menu_action(action)
+            # Everything else is handled via _poll_menu_action() once per
+            # physical press; do not double-apply _input + polling on Vita.
+        if settings_open:
             get_viewport().set_input_as_handled()
     elif event is InputEventKey and event.pressed and not event.echo:
         var action := &""

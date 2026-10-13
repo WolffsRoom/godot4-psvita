@@ -100,7 +100,7 @@ func new_game():
 	death_sequence += 1
 	if music_fade != null and music_fade.is_running():
 		music_fade.kill()
-	$Music.volume_db = -4.0
+	$Music.volume_db = -8.0
 	$DeathSound.stop()
 	get_tree().call_group(&"mobs", &"queue_free")
 	score = 0

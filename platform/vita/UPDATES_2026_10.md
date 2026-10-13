@@ -55,3 +55,21 @@ score>=10 and settings/menu/color/persistence). A new VPK builds and passes
 integrity checks, including custom a5 LiveArea and 180 native loading frames.
 The settings UI and the animated handoff have not yet been verified on
 physical hardware; please do not interpret the host tests as on-device proof.
+
+## Vita D-pad and audio output regression
+
+Real-hardware feedback after the first public VPK reported Settings opening but
+its D-pad remaining unresponsive; music also sounded distorted or crackly.
+
+- All Vita menu actions now poll the physical joypad during
+  PROCESS_MODE_ALWAYS (including repeat-on-hold for D-pad). Focused
+  Godot Controls no longer need to forward _input while SceneTree.paused.
+- The native Vita audio driver now uses a 2048-frame output buffer
+  (~42.7 ms at 48 kHz vs. ~21.3 ms), and requests a high-priority
+  mixer thread. Dodge's music and SFX players use -8 dB gain in
+  addition to the already headroom-limited PCM source.
+- host_vita_dpad_paused_smoke.gd explicitly disables HUD _input and
+  verifies D-pad navigation/value changes/repeat and Circle close.
+
+Host regression/build verification does not prove that physical Vita audio
+is now distortion-free. Validate on hardware before marking it fixed.
