@@ -1,11 +1,4 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/f8adb30c-2cc6-45ce-8916-a87c12c30840">
-    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/e4fe6c13-66c2-498a-9c5c-d935de33098f">
-    <img src="https://github.com/user-attachments/assets/e4fe6c13-66c2-498a-9c5c-d935de33098f" alt="Godot4Vita" width="480">
-  </picture>
-</p>
-
+<img width="1025" height="415" alt="Godot4Vita-Black" src="https://github.com/user-attachments/assets/ce92f4f5-90ce-4fe9-9aa4-2e29b735b25a" />
 <h1 align="center">GODOT 4 VITA</h1>
 
 <p align="center">
