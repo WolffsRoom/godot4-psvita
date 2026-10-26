@@ -52,6 +52,8 @@ class AudioDriverVita : public AudioDriver {
 	int channels = 2;
 
 	bool active = false;
+	// audio/vita/output_mode: Godot 3 Vita BGM layout (default) or "main48".
+	bool godot3_layout = true;
 	bool thread_exited = false;
 	mutable bool exit_thread = false;
 

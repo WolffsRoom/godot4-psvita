@@ -274,6 +274,20 @@ Node *SceneState::instantiate(GenEditState p_edit_state) const {
 
 	for (int i = 0; i < nc; i++) {
 		const NodeData &n = nd[i];
+#ifdef VITA_ENABLED
+        // Keep sparse progress markers for large scenes only: small prop/sub-scene
+        // instances are created hundreds of times while a level loads, and each
+        // flushed line is a synchronous ux0: write.
+        if (nc >= 128 && ((i % 64) == 0 || i == nc - 1)) {
+            fprintf(stderr,"[dllp-node] begin %d/%d name=%s type=%s props=%d\n",
+                    i, nc,
+                    String(snames[n.name]).utf8().get_data(),
+                    n.type >= 0 ? String(snames[n.type]).utf8().get_data() : "instance",
+                    (int)n.properties.size());
+            fflush(stderr);
+        }
+#endif
+
 
 		Node *parent = nullptr;
 		String old_parent_path;
@@ -389,6 +403,14 @@ Node *SceneState::instantiate(GenEditState p_edit_state) const {
 		} else {
 			// Node belongs to this scene and must be created.
 			Object *obj = ClassDB::instantiate(snames[n.type]);
+#ifdef VITA_ENABLED
+            if (nc >= 128 && ((i % 64) == 0 || i == nc - 1)) {
+                fprintf(stderr,"[dllp-node] created %d/%d name=%s\n",
+                        i, nc, String(snames[n.name]).utf8().get_data());
+                fflush(stderr);
+            }
+#endif
+
 
 			node = Object::cast_to<Node>(obj);
 
@@ -659,6 +681,14 @@ Node *SceneState::instantiate(GenEditState p_edit_state) const {
 			missing_node->set_recording_properties(false);
 		}
 
+
+#ifdef VITA_ENABLED
+        if (nc >= 128 && ((i % 64) == 0 || i == nc - 1)) {
+            fprintf(stderr,"[dllp-node] complete %d/%d name=%s\n",
+                    i, nc, String(snames[n.name]).utf8().get_data());
+            fflush(stderr);
+        }
+#endif
 		ret_nodes[i] = node;
 
 		if (node && gen_node_path_cache && ret_nodes[0]) {

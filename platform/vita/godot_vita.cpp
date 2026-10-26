@@ -32,16 +32,19 @@
 #include "os_vita.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include <psp2/io/fcntl.h>
+#include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/power.h>
 #include <psp2/sysmodule.h>
 
 // Raw sceIo bring-up log (no dependency on the engine's own logging), so we can
 // see how far Main::setup/start got even without a game pack.
+static char engine_log[160] = "ux0:data/godot_engine.log";
 static void vlog(const char *s) {
-	SceUID fd = sceIoOpen("ux0:data/godot_engine.log", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+	SceUID fd = sceIoOpen(engine_log, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
 	if (fd >= 0) {
 		unsigned n = 0;
 		while (s[n]) {
@@ -75,18 +78,61 @@ int main(int argc, char *argv[]) {
 	// Godot 4.x: launch straight into the packaged project. On device the game
 	// data + PCK live inside the VPK at app0:.
 	// TODO: replace hard-coded args with real CLI parsing once bootstrapping works.
+    char project_path[96] = "app0:/game_data";
+    FILE *folder_file = fopen("app0:game_data_folder.cfg", "rb");
+    if (folder_file) {
+        char folder[66] = {};
+        size_t length = fread(folder, 1, sizeof(folder) - 1, folder_file);
+        bool valid = !ferror(folder_file) && length > 0 && length <= 64;
+        fclose(folder_file);
+        for (size_t i = 0; i < length; i++) {
+            char c = folder[i];
+            valid = valid && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '_' || c == '-');
+        }
+        if (!valid) {
+            vlog("engine: invalid game_data_folder.cfg\n");
+            return 255;
+        }
+        char base[96];
+        snprintf(base, sizeof(base), "ux0:data/%s", folder);
+        sceIoMkdir(base, 0777);
+        char logs[128];
+        snprintf(logs, sizeof(logs), "%s/logs", base);
+        sceIoMkdir(logs, 0777);
+        snprintf(engine_log, sizeof(engine_log), "%s/godot_engine.log", logs);
+        snprintf(project_path, sizeof(project_path), "%s/game_data", base);
+    }
+	// A single game.pck next to game_data is preferred: every loose file on
+	// ux0: costs a directory lookup (~150 ms measured per resource), while a
+	// pack is one short path plus seeks into an in-memory directory.
+	// game_data/game.pck is preferred; the older layout kept it beside game_data.
+	char pack_path[128];
+	snprintf(pack_path, sizeof(pack_path), "%s/game.pck", project_path);
+	FILE *pack_file = fopen(pack_path, "rb");
+	if (!pack_file) {
+		snprintf(pack_path, sizeof(pack_path), "%.*s/game.pck", int(strrchr(project_path, '/') - project_path), project_path);
+		pack_file = fopen(pack_path, "rb");
+	}
+	bool use_pack = pack_file != NULL;
+	if (pack_file) fclose(pack_file);
+	vlog(use_pack ? "engine: using game.pck\n" : "engine: using loose game_data\n");
 	const char *args[] = {
-		"--path", "app0:/game_data",
+		use_pack ? "--main-pack" : "--path", use_pack ? pack_path : project_path,
 		"--rendering-driver", "opengl3",
 		"--rendering-method", "gl_compatibility",
+		"--single-threaded-scene",
 		"--verbose",
 	};
 
-	sceIoRemove("ux0:data/godot_engine.log");
+	sceIoRemove(engine_log);
 	// Capture Godot's own stdout/stderr (with --verbose) so we can see exactly
 	// why Main::setup succeeds or fails.
-	freopen("ux0:data/godot_stdout.log", "w", stdout);
-	freopen("ux0:data/godot_stderr.log", "w", stderr);
+	char output_log[160];
+    snprintf(output_log, sizeof(output_log), "%.*s/godot_stdout.log", int(strrchr(engine_log, '/') - engine_log), engine_log);
+    freopen(output_log, "w", stdout);
+	snprintf(output_log, sizeof(output_log), "%.*s/godot_stderr.log", int(strrchr(engine_log, '/') - engine_log), engine_log);
+    freopen(output_log, "w", stderr);
 	vlog("engine: before Main::setup\n");
 	Error err = Main::setup("godot", sizeof(args) / sizeof(args[0]), (char **)args);
 	fflush(stdout);

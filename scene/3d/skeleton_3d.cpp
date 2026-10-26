@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "skeleton_3d.h"
+#include "core/os/vita_prof.h"
 #include "skeleton_3d.compat.inc"
 
 #include "core/object/callable_mp.h"
@@ -312,6 +313,7 @@ void Skeleton3D::_notification(int p_what) {
 		} break;
 #endif // TOOLS_ENABLED
 		case NOTIFICATION_UPDATE_SKELETON: {
+			VITA_PROF(VITA_PROF_SKELETON);
 			// Update bone transforms to apply unprocessed poses.
 			force_update_all_dirty_bones();
 

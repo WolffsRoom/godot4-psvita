@@ -44,3 +44,23 @@ Godot still uses its own AudioServer and Bus architecture.
    volume versus 100%.
 3. If audio still breaks, capture an output block or investigate
    SCE audio scheduling and Godot bus processing for clipping/underruns.
+
+## Output layout option (2026-10-25)
+
+`audio/vita/output_mode` selects the hardware layout. The default is now
+`godot3`, the layout of the Godot 3 Vita driver used by the Dome Keeper port
+(see `GodotPSV/docs/AUDIO_GODOT3_VITA_DOMEKEEPER.md`), which plays without
+distortion on hardware:
+
+- BGM port at the project mix rate (`audio/driver/mix_rate`, 44100 Hz by default).
+- Block size `audio/driver/output_latency` (15 ms) rounded to the closest power
+  of two: 512 frames at the defaults.
+- Firmware default hardware volume and ALC; normal-priority mixer thread on the
+  user cores (no CPU3 pinning).
+- Unlike Godot 3, the mixer lock is released before `sceAudioOutOutput` and
+  there is no extra 1 ms sleep per block.
+
+Set `audio/vita/output_mode="main48"` in a project to keep the previous layout
+(MAIN 48 kHz, 2048 frames, 72% hardware gain, ALC off, high priority / CPU3).
+Ports pick up the new default only when their runtime is rebuilt. The startup
+log line is `[vita-audio] layout=... route=... frames=... rate=...`.

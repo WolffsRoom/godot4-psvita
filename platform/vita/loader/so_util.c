@@ -63,7 +63,6 @@ void so_flush_caches(so_module *mod) {
 int so_load(so_module *mod, const char *filename, uintptr_t load_addr) {
   int res = 0;
   uintptr_t data_addr = 0;
-  SceUID so_blockid;
   void *so_data;
   size_t so_size;
 
@@ -78,14 +77,17 @@ int so_load(so_module *mod, const char *filename, uintptr_t load_addr) {
   so_size = sceIoLseek(fd, 0, SCE_SEEK_END);
   sceIoLseek(fd, 0, SCE_SEEK_SET);
 
-  so_blockid = sceKernelAllocMemBlock("file", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, (so_size + 0xfff) & ~0xfff, NULL);
-  if (so_blockid < 0) {
-    debugPrintf("so_load: file memblock alloc (%d bytes) failed = 0x%08X\n", (int)so_size, so_blockid);
+  /* The file image is temporary. Allocate it from newlib's reserved heap so it
+   * does not compete with the RX/RW memblocks for the remaining USER_RW pool.
+   * It is released before Godot starts and the complete heap becomes reusable. */
+  so_data = malloc(so_size);
+  if (!so_data) {
+    debugPrintf("so_load: heap file buffer (%d bytes) failed\n", (int)so_size);
     sceIoClose(fd);
-    return so_blockid;
+    return -1;
   }
 
-  sceKernelGetMemBlockBase(so_blockid, &so_data);
+  debugPrintf("so_load: temporary heap file buffer=%d bytes\n", (int)so_size);
 
   sceIoRead(fd, so_data, so_size);
   sceIoClose(fd);
@@ -153,9 +155,21 @@ int so_load(so_module *mod, const char *filename, uintptr_t load_addr) {
         mod->data_size = mod->phdr[i].p_memsz;
       }
 
-      char *zero = malloc(prog_size);
-      memset(zero, 0, prog_size);
-      kuKernelCpuUnrestrictedMemcpy(prog_data, zero, prog_size);
+      /* RX memory cannot be cleared directly from user mode. Clear it through
+       * kubridge in bounded chunks instead of allocating another full segment
+       * (about 46 MiB for Godot) inside the heap. */
+      const size_t zero_chunk_size = 64 * 1024;
+      char *zero = calloc(1, zero_chunk_size);
+      if (!zero) {
+        debugPrintf("so_load: zero chunk allocation failed\n");
+        res = -1;
+        goto err_free_data;
+      }
+      for (size_t offset = 0; offset < prog_size; offset += zero_chunk_size) {
+        size_t remaining = prog_size - offset;
+        size_t count = remaining < zero_chunk_size ? remaining : zero_chunk_size;
+        kuKernelCpuUnrestrictedMemcpy((char *)prog_data + offset, zero, count);
+      }
       free(zero);
 
       kuKernelCpuUnrestrictedMemcpy((void *)mod->phdr[i].p_vaddr, (void *)((uintptr_t)so_data + mod->phdr[i].p_offset), mod->phdr[i].p_filesz);
@@ -207,7 +221,11 @@ int so_load(so_module *mod, const char *filename, uintptr_t load_addr) {
     }
   }
 
-  sceKernelFreeMemBlock(so_blockid);
+  free(so_data);
+  mod->ehdr = NULL;
+  mod->phdr = NULL;
+  mod->shdr = NULL;
+  mod->shstr = NULL;
 
   if (!head && !tail) {
     head = mod;
@@ -224,7 +242,7 @@ err_free_data:
 err_free_text:
   sceKernelFreeMemBlock(mod->text_blockid);
 err_free_so:
-  sceKernelFreeMemBlock(so_blockid);
+  free(so_data);
 
   return res;
 }

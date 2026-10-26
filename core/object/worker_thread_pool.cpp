@@ -71,9 +71,14 @@ void WorkerThreadPool::_process_task(Task *p_task, ThreadData *p_pool_worker) {
 		// The task can also be run synchronously by a non-pool caller.
 		// Preserve the task completion/semaphore logic with a temporary
 		// ThreadData instead of dereferencing an invalid pool entry.
-		fprintf(stderr, "[vita-worker] caller outside pool index=%d count=%u; executing inline\n",
-				pool_thread_index, (unsigned)threads.size());
-		fflush(stderr);
+		// Vita: pool has zero workers in the current runtime configuration.
+		// Printing thousands of times per frame stalls the main thread and
+		// the filesystem. Keep just one diagnostic per boot.
+		static bool printed_inline_diagnostic = false;
+		if (!printed_inline_diagnostic) {
+			fprintf(stderr, "[vita-worker] zero-worker fallback; tasks running synchronously.\n");
+			printed_inline_diagnostic = true;
+		}
 		pool_thread_index = -1;
 		temporary_caller.pool = this;
 		caller = &temporary_caller;
@@ -841,8 +846,18 @@ void WorkerThreadPool::init(int p_thread_count, float p_low_priority_task_ratio)
 	if (p_thread_count < 0) {
 		p_thread_count = OS::get_singleton()->get_default_thread_pool_size();
 	}
-
-	max_low_priority_threads = CLAMP(p_thread_count * p_low_priority_task_ratio, 1, p_thread_count - 1);
+#ifdef VITA_ENABLED
+    // The runtime dump from 2026-10-14 shows an undefined-instruction abort
+    // when an idle Godot worker enters std::mutex::lock() in _process_task().
+    // Default WorkerThreadPool tasks have a supported inline fallback when
+    // threads.is_empty(). Avoid spawning those background worker threads until
+    // the Vita pthread/stdlib shim is proved safe.
+    fprintf(stderr, "[vita-worker] forcing zero background WorkerThreadPool threads (requested=%d)\n", p_thread_count);
+    fflush(stderr);
+    p_thread_count = 0;
+#endif
+    max_low_priority_threads = p_thread_count > 1 ?
+            CLAMP(p_thread_count * p_low_priority_task_ratio, 1, p_thread_count - 1) : 0;
 
 	print_verbose(vformat("WorkerThreadPool: %d threads, %d max low-priority.", p_thread_count, max_low_priority_threads));
 

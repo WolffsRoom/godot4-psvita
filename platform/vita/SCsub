@@ -15,6 +15,10 @@ vita_files = [
     "vita_cpp_compat.cpp",  # ...and the ones VitaSDK declares without extern "C".
 ]
 
+if env["vita_gxm3d"]:
+    vita_files[vita_files.index("godot_vita.cpp")] = "godot_vita_gxm3d.cpp"
+    vita_files[vita_files.index("rasterizer_gxm_vita.cpp")] = "rasterizer_gxm3d_vita.cpp"
+
 if env["vita_shared"]:
     # Engine archives are SCons nodes; external SDK libraries are strings.
     # Leave external imports unresolved for default_dynlib in the loader.
@@ -30,7 +34,7 @@ if env["vita_shared"]:
     ]
     shared_env["LINKCOM"] = "$CXX -o $TARGET $LINKFLAGS $SOURCES -Wl,--start-group $_LIBDIRFLAGS $_LIBFLAGS -Wl,--end-group"
     shared_env["PROGSUFFIX"] = ".so"
-    runtime = shared_env.add_program("#bin/libgodot", vita_files)
+    runtime = shared_env.add_program("#bin/libgodot_gxm3d" if env["vita_gxm3d"] else "#bin/libgodot", vita_files)
     Default(runtime)
     Return()
 

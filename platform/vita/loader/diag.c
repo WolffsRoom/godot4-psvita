@@ -16,6 +16,7 @@
  */
 
 #include <psp2/io/fcntl.h>
+#include <psp2/io/stat.h>
 
 #include "diag.h"
 
@@ -28,7 +29,9 @@ static unsigned slen(const char *s) {
 }
 
 void diag(const char *s) {
-	SceUID fd = sceIoOpen("ux0:data/godot_diag.log",
+	sceIoMkdir(VITA_LOG_ROOT, 0777);
+    sceIoMkdir(VITA_LOG_ROOT "/logs", 0777);
+    SceUID fd = sceIoOpen(VITA_LOG_ROOT "/logs/godot_diag.log",
 			SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
 	if (fd >= 0) {
 		sceIoWrite(fd, s, slen(s));
@@ -37,7 +40,7 @@ void diag(const char *s) {
 }
 
 __attribute__((constructor(101))) static void diag_first(void) {
-	sceIoRemove("ux0:data/godot_diag.log");
+	sceIoRemove(VITA_LOG_ROOT "/logs/godot_diag.log");
 	diag("[ctor first] earliest constructor ran (Sce imports work)\n");
 }
 

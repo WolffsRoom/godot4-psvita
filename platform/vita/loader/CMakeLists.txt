@@ -12,12 +12,18 @@ project(godot_loader C)
 include("${VITASDK}/share/vita.cmake" REQUIRED)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/VitaGL.cmake")
 
+# Request the extended USER_RW budget used by large native Vita ports.
+# ATTRIBUTE2=12 raises the normal application budget from about 256 MiB to
+# about 365 MiB; the runtime still leaves room for executable mappings.
+set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
+
 set(VITA_APP_NAME "Godot 4 (Vita)" CACHE STRING "Vita application name")
 set(VITA_TITLEID  "GDOT40001" CACHE STRING "Vita title ID")
 set(VITA_VERSION  "01.00" CACHE STRING "Vita package version")
 set(VITA_RUNTIME "" CACHE FILEPATH "Explicit libgodot.so to package")
 set(VITA_GAME_DATA "${CMAKE_CURRENT_SOURCE_DIR}/game_data" CACHE PATH "Project to package")
 set(VITA_RUNTIME_BUILD_ID "manual" CACHE STRING "Runtime build identifier")
+set(VITA_LOG_ROOT "ux0:data" CACHE STRING "Application diagnostics root")
 if(NOT VITA_RUNTIME OR NOT EXISTS "${VITA_RUNTIME}")
   message(FATAL_ERROR "Set VITA_RUNTIME to the newly built libgodot.so")
 endif()
@@ -42,6 +48,7 @@ add_executable(${PROJECT_NAME}
 )
 target_compile_definitions(${PROJECT_NAME} PRIVATE
   VITA_RUNTIME_BUILD_ID="${VITA_RUNTIME_BUILD_ID}"
+  VITA_LOG_ROOT="${VITA_LOG_ROOT}"
   VITA_RUNTIME_SHA256="${VITA_RUNTIME_SHA256}"
   VITA_GL_SHA256="${VITA_GL_SHA256}"
 )
@@ -96,6 +103,7 @@ target_link_libraries(${PROJECT_NAME}
   ScePower_stub
   SceRtc_stub
   SceIme_stub
+  ScePgf_stub
   SceHid_stub
   SceNet_stub
   SceNetCtl_stub
@@ -110,15 +118,27 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 option(VITA_GXM2D "Select experimental native GXM canvas backend" OFF)
+option(VITA_GXM3D "Enable experimental static mesh scene renderer" OFF)
+if(VITA_GXM3D)
+  set(VITA_GXM2D ON)
+endif()
 set(GXM_PACKAGE_FILES)
+if(VITA_GXM3D)
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gxm3d.cfg" "static-mesh-prototype-v1\n")
+  list(APPEND GXM_PACKAGE_FILES FILE "${CMAKE_CURRENT_BINARY_DIR}/gxm3d.cfg" gxm3d.cfg)
+endif()
 if(VITA_GXM2D)
   file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gxm2d.cfg" "native-canvas-v2\n")
   list(APPEND GXM_PACKAGE_FILES FILE "${CMAKE_CURRENT_BINARY_DIR}/gxm2d.cfg" gxm2d.cfg)
 endif()
 # Optional game-specific LiveArea and pre-engine loading animation.
-# Default packaging deliberately remains unchanged for ColorRect probes.
+# The default loader includes the animated 960x544 splash after LiveArea/pic0.
 set(VITA_LIVEAREA_DIR "" CACHE PATH "Optional LiveArea asset folder (icon0, pic0, bg0, startup, template)")
-set(VITA_BOOT_ANIMATION "" CACHE FILEPATH "Optional DVAN1 native loading animation data")
+# Default startup animation, shown by the native loader immediately after
+# LiveArea/pic0 while the engine shared object is being mapped/relocated.
+# Use -DVITA_BOOT_ANIMATION:FILEPATH=OFF to opt out for tiny smoke tests.
+set(VITA_BOOT_ANIMATION "${CMAKE_CURRENT_SOURCE_DIR}/boot_assets/custom_splash_960x544.dat"
+    CACHE FILEPATH "Native 960x544 Godot Vita boot animation (OFF to disable)")
 set(VITA_BRANDING_FILES)
 if(VITA_LIVEAREA_DIR)
   foreach(ASSET IN ITEMS icon0.png pic0.png bg0.png startup.png template.xml)

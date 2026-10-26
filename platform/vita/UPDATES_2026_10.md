@@ -73,3 +73,24 @@ its D-pad remaining unresponsive; music also sounded distorted or crackly.
 
 Host regression/build verification does not prove that physical Vita audio
 is now distortion-free. Validate on hardware before marking it fixed.
+
+## Windows editor export integration (2026-10-13)
+
+`editor/addons/psvita` now registers PS Vita in the standard Godot 4.8-dev7
+export dialog using EditorExportPlatformExtension. The portable distribution
+at GodotPSV/editor-vita uses the checksum-verified official Windows editor,
+the addon, a matching generic loader/runtime template and a configured example.
+No desktop engine fork or VitaSDK installation is required to export.
+
+Release exports generate VPK, PARAM.SFO and LiveArea using built-in Godot APIs.
+Godot's resource exporter supplies project.binary, remapped scenes and imported
+textures under game_data, matching the existing runtime startup path. Preset
+validation checks version/Title ID, renderer, viewport, worker count, script
+format, unsupported encryption and missing templates. Runtime binaries are
+hash-checked. Debug export is explicitly rejected until supported.
+
+Windows command-line export passed; independent ZIP/SFO/runtime-hash/imported
+texture checks passed; the exported project reached READY on the desktop host.
+A rejected debug export preserved the previous VPK byte-for-byte. These checks
+do not prove graphical export-dialog interaction or execution of this newly
+exported VPK on physical hardware. The existing GXM feature limits still apply.

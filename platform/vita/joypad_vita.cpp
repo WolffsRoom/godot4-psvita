@@ -82,10 +82,7 @@ void JoypadVita::process_joypads() {
 		return;
 	}
 	frames++;
-	if (first_sample || pad.buttons != previous_buttons ||
-		((frames % 300) == 0) ||
-		((int)pad.lx - (int)previous_lx > 32) || ((int)previous_lx - (int)pad.lx > 32) ||
-		((int)pad.ly - (int)previous_ly > 32) || ((int)previous_ly - (int)pad.ly > 32)) {
+	if (first_sample || ((frames % 600) == 0)) {
 		fprintf(stderr, "[vita-pad] sample=%d buttons=0x%08x lx=%u ly=%u rx=%u ry=%u frame=%u\n",
 				samples, pad.buttons, pad.lx, pad.ly, pad.rx, pad.ry, frames);
 		fflush(stderr);

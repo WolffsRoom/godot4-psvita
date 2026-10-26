@@ -2,6 +2,9 @@
 #include "../gxm_bridge.h"
 typedef struct { char *symbol; uintptr_t func; } so_default_dynlib;
 
+extern int sceKernelChangeThreadCpuAffinityMask();
+extern int sceKernelGetThreadId();
+
 extern int FT_Activate_Size();
 extern int FT_Add_Default_Modules();
 extern int FT_Done_Face();
@@ -549,6 +552,7 @@ extern int sceClibPrintf();
 extern int sceCtrlPeekBufferPositive();
 extern int sceCtrlSetSamplingMode();
 extern int sceIoClose();
+extern int sceIoMkdir();
 extern int sceIoOpen();
 extern int sceIoRemove();
 extern int sceIoWrite();
@@ -661,8 +665,25 @@ so_default_dynlib default_dynlib[] = {
   { "vita_gxm_texture_free", (uintptr_t)&vita_gxm_texture_free },
   { "vita_gxm_texture_quad", (uintptr_t)&vita_gxm_texture_quad },
   { "vita_gxm_begin", (uintptr_t)&vita_gxm_begin },
+  { "vita_gxm_scene3d_end", (uintptr_t)&vita_gxm_scene3d_end },
+  { "vita_gxm_triangles3d", (uintptr_t)&vita_gxm_triangles3d },
+  { "vita_gxm_mesh_create", (uintptr_t)&vita_gxm_mesh_create },
+  { "vita_gxm_mesh_draw", (uintptr_t)&vita_gxm_mesh_draw },
+  { "vita_gxm_mesh_reset", (uintptr_t)&vita_gxm_mesh_reset },
+  { "vita_gxm_mesh_arena_used", (uintptr_t)&vita_gxm_mesh_arena_used },
+  { "vita_gxm_last_gpu_wait_us", (uintptr_t)&vita_gxm_last_gpu_wait_us },
+  { "vita_gxm_set_vsync", (uintptr_t)&vita_gxm_set_vsync },
+  { "vita_gxm_depth_write", (uintptr_t)&vita_gxm_depth_write },
+  { "vita_gxm_vertex_lighting_available", (uintptr_t)&vita_gxm_vertex_lighting_available },
+  { "vita_gxm_light_mesh_create", (uintptr_t)&vita_gxm_light_mesh_create },
+  { "vita_gxm_light_mesh_set_colors", (uintptr_t)&vita_gxm_light_mesh_set_colors },
+  { "vita_gxm_light_mesh_draw", (uintptr_t)&vita_gxm_light_mesh_draw },
+  { "vita_gxm_blend_add", (uintptr_t)&vita_gxm_blend_add },
   { "vita_gxm_quad", (uintptr_t)&vita_gxm_quad },
   { "vita_gxm_clip", (uintptr_t)&vita_gxm_clip },
+  { "vita_gxm_target_create", (uintptr_t)&vita_gxm_target_create },
+  { "vita_gxm_target_begin", (uintptr_t)&vita_gxm_target_begin },
+  { "vita_gxm_target_end", (uintptr_t)&vita_gxm_target_end },
   { "vita_gxm_end", (uintptr_t)&vita_gxm_end },
   { "vita_gxm_finish", (uintptr_t)&vita_gxm_finish },
   { "FT_Activate_Size", (uintptr_t)&FT_Activate_Size },
@@ -1212,6 +1233,7 @@ so_default_dynlib default_dynlib[] = {
   { "sceCtrlPeekBufferPositive", (uintptr_t)&sceCtrlPeekBufferPositive },
   { "sceCtrlSetSamplingMode", (uintptr_t)&sceCtrlSetSamplingMode },
   { "sceIoClose", (uintptr_t)&sceIoClose },
+  { "sceIoMkdir", (uintptr_t)&sceIoMkdir },
   { "sceIoOpen", (uintptr_t)&sceIoOpen },
   { "sceIoRemove", (uintptr_t)&sceIoRemove },
   { "sceIoWrite", (uintptr_t)&sceIoWrite },
@@ -1229,6 +1251,8 @@ so_default_dynlib default_dynlib[] = {
   { "send", (uintptr_t)&send },
   { "sendto", (uintptr_t)&sendto },
   { "setenv", (uintptr_t)&setenv },
+  { "sceKernelChangeThreadCpuAffinityMask", (uintptr_t)&sceKernelChangeThreadCpuAffinityMask },
+  { "sceKernelGetThreadId", (uintptr_t)&sceKernelGetThreadId },
   { "setjmp", (uintptr_t)&setjmp },
   { "setlocale", (uintptr_t)&setlocale },
   { "setsid", (uintptr_t)&setsid },

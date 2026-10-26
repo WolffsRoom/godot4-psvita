@@ -1,5 +1,6 @@
 #include "rasterizer_gxm_vita.h"
 #include "gxm_bridge.h"
+#include "core/config/project_settings.h"
 #include "servers/rendering/dummy/rasterizer_canvas_dummy.h"
 #include "servers/rendering/dummy/storage/texture_storage.h"
 #include <stdio.h>
@@ -15,7 +16,12 @@ class GXMTextureStorage : public RendererDummy::TextureStorage {
         Size2i size;
         Color clear = Color(0, 0, 0, 1);
         bool pending_clear = true;
+        // Offscreen targets (SubViewport) render into a GXM texture.
+        RID texture;
+        void *gpu = nullptr;
+        Size2i gpu_size;
     };
+    HashMap<RID, RID> rt_textures; // texture RID -> render target RID
     mutable RID_Owner<Target> targets;
     RID screen;
     struct Texture {
@@ -23,6 +29,8 @@ class GXMTextureStorage : public RendererDummy::TextureStorage {
         Image::Format format = Image::FORMAT_MAX;
         Size2i size;
         void *gpu = nullptr;
+        unsigned long long failed_epoch = ~0ULL;
+        bool has_alpha = false;
     };
     struct CanvasTexture {
         RID diffuse;
@@ -31,6 +39,7 @@ class GXMTextureStorage : public RendererDummy::TextureStorage {
     HashMap<RID, Texture> textures;
     HashMap<RID, RID> proxies;
     HashMap<RID, CanvasTexture> canvas_textures;
+    unsigned long long allocation_epoch = 0;
 public:
     void release_gpu() {
         for (KeyValue<RID, Texture> &entry : textures) {
@@ -56,11 +65,17 @@ public:
         }
         rgba->convert(Image::FORMAT_RGBA8);
         Texture *old = textures.getptr(rid);
-        if (old) vita_gxm_texture_free(old->gpu);
+        if (old && old->gpu) {
+            vita_gxm_texture_free(old->gpu);
+            allocation_epoch++;
+        }
         Texture t;
         t.image = rgba;
         t.format = image->get_format();
         t.size = Size2i(image->get_width(), image->get_height());
+        // Cut-out and blended textures skip the multiplicative lighting pass,
+        // which would also darken whatever shows through their holes.
+        t.has_alpha = rgba->detect_alpha() != Image::ALPHA_NONE;
         textures.insert(rid, t);
     }
     void texture_2d_update(RID rid, const Ref<Image> &image, int layer = 0) override {
@@ -76,8 +91,40 @@ public:
         return t ? t->format : Image::FORMAT_MAX;
     }
     Size2 texture_size_with_proxy(RID rid) override {
-        const Texture *t = textures.getptr(resolve(rid));
+        RID base = resolve(rid);
+        const RID *target = rt_textures.getptr(base);
+        if (target) {
+            const Target *rt = targets.get_or_null(*target);
+            return rt ? Size2(rt->size) : Size2();
+        }
+        const Texture *t = textures.getptr(base);
         return t ? Size2(t->size) : Size2();
+    }
+    bool is_render_target_texture(RID rid) const { return rt_textures.has(resolve(rid)); }
+    // GPU surface of an offscreen target, (re)created to match its size.
+    void *target_gpu(RID rid) {
+        Target *t = targets.get_or_null(rid);
+        if (!t || t->size.x < 1 || t->size.y < 1) return nullptr;
+        if (t->gpu && t->gpu_size != t->size) {
+            vita_gxm_texture_free(t->gpu);
+            t->gpu = nullptr;
+        }
+        if (!t->gpu) {
+            t->gpu = vita_gxm_target_create(t->size.x, t->size.y);
+            t->gpu_size = t->size;
+            fprintf(stderr, "[gxm2d] offscreen target %dx%d %s\n", t->size.x, t->size.y, t->gpu ? "created" : "FAILED");
+            fflush(stderr);
+        }
+        return t->gpu;
+    }
+    RID render_target_get_texture(RID rid) override {
+        Target *t = targets.get_or_null(rid);
+        ERR_FAIL_NULL_V(t, RID());
+        if (t->texture.is_null()) {
+            t->texture = texture_allocate();
+            rt_textures.insert(t->texture, rid);
+        }
+        return t->texture;
     }
     void texture_set_size_override(RID rid, int width, int height) override {
         Texture *t = textures.getptr(resolve(rid));
@@ -90,10 +137,17 @@ public:
     void texture_proxy_update(RID rid, RID base) override { texture_proxy_initialize(rid, base); }
     void texture_free(RID rid) override {
         Texture *t = textures.getptr(rid);
-        if (t) vita_gxm_texture_free(t->gpu);
+        if (t && t->gpu) {
+            vita_gxm_texture_free(t->gpu);
+            allocation_epoch++;
+        }
         textures.erase(rid);
         proxies.erase(rid);
         canvas_textures.erase(rid);
+        if (rt_textures.has(rid)) {
+            // Owned by its render target; released in render_target_free.
+            return;
+        }
         RendererDummy::TextureStorage::texture_free(rid);
     }
     void texture_replace(RID rid, RID by) override {
@@ -127,14 +181,85 @@ public:
         const CanvasTexture *ct = canvas_textures.getptr(rid);
         return ct && ct->filter != RSE::CANVAS_ITEM_TEXTURE_FILTER_DEFAULT ? ct->filter : fallback;
     }
+    bool texture_has_alpha(RID rid) const {
+        const Texture *t = textures.getptr(resolve(rid));
+        return t && t->has_alpha;
+    }
     void *get_gpu(RID rid) {
-        Texture *t = textures.getptr(resolve(rid));
+        RID base = resolve(rid);
+        const RID *target = rt_textures.getptr(base);
+        if (target) {
+            Target *rt = targets.get_or_null(*target);
+            return rt ? rt->gpu : nullptr;
+        }
+        Texture *t = textures.getptr(base);
         if (!t || t->image.is_null()) return nullptr;
         if (!t->gpu) {
-            t->gpu = vita_gxm_texture_create(t->image->get_width(), t->image->get_height(), t->image->get_data().ptr());
-            ERR_FAIL_NULL_V_MSG(t->gpu, nullptr, "GXM texture allocation failed (48 MiB budget).");
+            // When the GPU budget is exhausted, suppress *per-frame* retries
+            // for the same texture until something has been freed. Previously
+            // 60,000+ errors tanked FPS and caused log writes each frame.
+            if (t->failed_epoch == allocation_epoch) return nullptr;
+            t->gpu = vita_gxm_texture_create(t->image->get_width(),
+                    t->image->get_height(), t->image->get_data().ptr());
+            if (!t->gpu) {
+                t->failed_epoch = allocation_epoch;
+                static unsigned failed_once;
+                if (failed_once++ < 8) {
+                    fprintf(stderr, "[gxm2d] GPU budget limit: skipped texture %dx%d (no immediate retry)\n",
+                            t->image->get_width(), t->image->get_height());
+                    fflush(stderr);
+                }
+                return nullptr;
+            }
         }
         return t->gpu;
+    }
+    // Decals: stored so the 3D path can draw them as textured quads on the
+    // projection plane. No real projection onto curved geometry.
+    struct Decal {
+        Vector3 size = Vector3(2, 2, 2);
+        RID albedo;
+        Color modulate = Color(1, 1, 1, 1);
+        float albedo_mix = 1.0f;
+        uint32_t cull_mask = 0xFFFFFFFF;
+    };
+    struct DecalInstance {
+        RID decal;
+        Transform3D transform;
+    };
+    mutable RID_Owner<Decal, true> decals;
+    mutable RID_Owner<DecalInstance> decal_instances;
+    bool owns_decal(RID rid) const { return decals.owns(rid); }
+    const Decal *get_decal(RID rid) const { return decals.get_or_null(rid); }
+    const DecalInstance *get_decal_instance(RID rid) const { return decal_instances.get_or_null(rid); }
+    RID decal_allocate() override { return decals.allocate_rid(); }
+    void decal_initialize(RID rid) override { decals.initialize_rid(rid); }
+    void decal_free(RID rid) override { if (decals.owns(rid)) decals.free(rid); }
+    void decal_set_size(RID rid, const Vector3 &size) override { Decal *d = decals.get_or_null(rid); if (d) d->size = size; }
+    void decal_set_texture(RID rid, RSE::DecalTexture type, RID texture) override {
+        Decal *d = decals.get_or_null(rid);
+        if (d && type == RSE::DECAL_TEXTURE_ALBEDO) d->albedo = texture;
+    }
+    void decal_set_albedo_mix(RID rid, float mix) override { Decal *d = decals.get_or_null(rid); if (d) d->albedo_mix = mix; }
+    void decal_set_modulate(RID rid, const Color &modulate) override { Decal *d = decals.get_or_null(rid); if (d) d->modulate = modulate; }
+    void decal_set_cull_mask(RID rid, uint32_t layers) override { Decal *d = decals.get_or_null(rid); if (d) d->cull_mask = layers; }
+    AABB decal_get_aabb(RID rid) const override {
+        const Decal *d = decals.get_or_null(rid);
+        return d ? AABB(-d->size * 0.5f, d->size) : AABB();
+    }
+    uint32_t decal_get_cull_mask(RID rid) const override {
+        const Decal *d = decals.get_or_null(rid);
+        return d ? d->cull_mask : 0;
+    }
+    RID decal_instance_create(RID decal) override {
+        DecalInstance instance;
+        instance.decal = decal;
+        return decal_instances.make_rid(instance);
+    }
+    void decal_instance_free(RID rid) override { if (decal_instances.owns(rid)) decal_instances.free(rid); }
+    void decal_instance_set_transform(RID rid, const Transform3D &transform) override {
+        DecalInstance *instance = decal_instances.get_or_null(rid);
+        if (instance) instance->transform = transform;
     }
     RID render_target_create() override {
         RID rid = targets.make_rid(Target());
@@ -142,6 +267,14 @@ public:
         return rid;
     }
     void render_target_free(RID rid) override {
+        Target *t = targets.get_or_null(rid);
+        if (t) {
+            if (t->gpu) vita_gxm_texture_free(t->gpu);
+            if (t->texture.is_valid()) {
+                rt_textures.erase(t->texture);
+                RendererDummy::TextureStorage::texture_free(t->texture);
+            }
+        }
         if (targets.owns(rid)) targets.free(rid);
         if (screen == rid) screen = RID();
     }
@@ -182,86 +315,9 @@ public:
     }
 };
 
-class GXMCanvas : public RasterizerCanvasDummy {
-    GXMTextureStorage *storage;
-    unsigned int logged_rects = 0;
-public:
-    explicit GXMCanvas(GXMTextureStorage *p_storage) : storage(p_storage) {}
-    void canvas_render_items(RID target, Item *items, const Color &modulate, Light *, Light *,
-            const Transform2D &, RSE::CanvasItemTextureFilter default_filter, RSE::CanvasItemTextureRepeat,
-            bool snap, bool &sdf_used, RenderingServerTypes::RenderInfo * = nullptr) override {
-        sdf_used = false;
-        if (!storage->is_screen(target) || storage->render_target_get_size(target) != Size2i(960, 544)) {
-            WARN_PRINT_ONCE("GXM prototype requires one 960x544 screen viewport.");
-            return;
-        }
-        vita_gxm_begin(gxm_color(storage->render_target_get_clear_request_color(target)));
-        storage->render_target_disable_clear_request(target);
-        for (Item *item = items; item; item = item->next) {
-            if (item->material.is_valid() || (item->material_owner && item->material_owner->material.is_valid()) || item->canvas_group_owner) {
-                WARN_PRINT_ONCE("GXM prototype skips custom materials and canvas groups.");
-                continue;
-            }
-            Rect2i clip = item->final_clip_owner ? Rect2i(item->final_clip_owner->final_clip_rect) : Rect2i();
-            if (item->final_clip_owner && !clip.has_area()) continue;
-            vita_gxm_clip(item->final_clip_owner != nullptr, clip.position.x, clip.position.y, clip.size.x, clip.size.y);
-            Transform2D extra;
-            for (Item::Command *command = item->commands; command; command = command->next) {
-                if (command->type == Item::Command::TYPE_TRANSFORM) {
-                    extra = static_cast<Item::CommandTransform *>(command)->xform;
-                    continue;
-                }
-                if (command->type != Item::Command::TYPE_RECT) {
-                    WARN_PRINT_ONCE("GXM prototype supports ColorRect commands only.");
-                    continue;
-                }
-                const Item::CommandRect *rect = static_cast<Item::CommandRect *>(command);
-                if (rect->flags & (CANVAS_RECT_TILE | CANVAS_RECT_MSDF | CANVAS_RECT_LCD)) {
-                    WARN_PRINT_ONCE("GXM: tiled, MSDF and LCD rectangles are not implemented.");
-                    continue;
-                }
-                Transform2D transform = item->final_transform * extra;
-                Vector2 points[4] = {rect->rect.position, rect->rect.position + Vector2(rect->rect.size.x, 0),
-                        rect->rect.position + rect->rect.size, rect->rect.position + Vector2(0, rect->rect.size.y)};
-                float xy[8];
-                for (int i = 0; i < 4; i++) {
-                    Vector2 p = transform.xform(points[i]);
-                    if (snap) p = p.floor();
-                    xy[2 * i] = p.x; xy[2 * i + 1] = p.y;
-                }
-                Color color = rect->modulate * item->final_modulate * modulate;
-                if (rect->texture.is_valid()) {
-                    Size2 size = storage->texture_size_with_proxy(rect->texture);
-                    if (size.x <= 0 || size.y <= 0) continue;
-                    void *gpu = storage->get_gpu(rect->texture);
-                    if (!gpu) continue;
-                    Rect2 src = (rect->flags & CANVAS_RECT_REGION) ? rect->source : Rect2(Vector2(), size);
-                    float uv[8];
-                    const Vector2 corners[4] = {Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)};
-                    for (int i = 0; i < 4; i++) {
-                        Vector2 c = corners[i];
-                        if (rect->flags & CANVAS_RECT_TRANSPOSE) SWAP(c.x, c.y);
-                        if (rect->flags & CANVAS_RECT_FLIP_H) c.x = 1.0f - c.x;
-                        if (rect->flags & CANVAS_RECT_FLIP_V) c.y = 1.0f - c.y;
-                        Vector2 p = (src.position + c * src.size) / size;
-                        uv[2 * i] = p.x; uv[2 * i + 1] = p.y;
-                    }
-                    auto filter = item->texture_filter == RSE::CANVAS_ITEM_TEXTURE_FILTER_DEFAULT ? default_filter : item->texture_filter;
-                    filter = storage->texture_filter(rect->texture, filter);
-                    bool linear = filter != RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST && filter != RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST_WITH_MIPMAPS;
-                    vita_gxm_texture_quad(gpu, xy, uv, gxm_color(color), linear);
-                } else {
-                    vita_gxm_quad(xy, gxm_color(color));
-                }
-                if (logged_rects++ < 3) {
-                    fprintf(stderr, "[gxm2d] rect submitted xy=(%.1f,%.1f) rgba=%08lx\n", xy[0], xy[1], (unsigned long)gxm_color(color));
-                    fflush(stderr);
-                }
-            }
-        }
-        vita_gxm_clip(0, 0, 0, 0, 0);
-    }
-};
+#include "rasterizer_scene_gxm_vita.inc"
+
+#include "gxm_canvas_vita.inc"
 
 RasterizerGXMVita::RasterizerGXMVita() {
     memdelete(canvas);
@@ -269,9 +325,55 @@ RasterizerGXMVita::RasterizerGXMVita() {
     auto *gxm_storage = memnew(GXMTextureStorage);
     texture_storage = gxm_storage;
     canvas = memnew(GXMCanvas(gxm_storage));
-    fprintf(stderr, "[gxm2d] native canvas v2: RGBA textures and bitmap font atlases; no GLES shaders\n");
+    FILE *experimental = fopen("app0:gxm3d.cfg", "rb");
+    if (experimental) {
+        fclose(experimental);
+        memdelete(scene);
+        memdelete(mesh_storage);
+        memdelete(material_storage);
+        memdelete(light_storage);
+        auto *gxm_meshes = memnew(GXMMeshStorage);
+        auto *gxm_materials = memnew(GXMMaterialStorage);
+        auto *gxm_lights = memnew(GXMLightStorage);
+        mesh_storage = gxm_meshes;
+        material_storage = gxm_materials;
+        light_storage = gxm_lights;
+        memdelete(utilities);
+        utilities = memnew(GXMUtilities(gxm_meshes, gxm_lights, gxm_storage));
+        scene = memnew(GXMScene(gxm_storage, gxm_meshes, gxm_materials, gxm_lights));
+        fprintf(stderr, "[gxm3d] experimental static mesh renderer enabled\n");
+    }
+    fprintf(stderr, "[gxm2d] native canvas v3: RGBA8->RGBA4444 loader upload; flexible viewport canvas; ninepatch/polygon/primitive; no GLES shaders\n");
     fflush(stderr);
 }
+void RasterizerGXMVita::set_boot_image_with_stretch(const Ref<Image> &p_image, const Color &p_color, RSE::SplashStretchMode p_stretch_mode, bool p_use_filter) {
+    vita_gxm_begin(gxm_color(Color(p_color.r, p_color.g, p_color.b, 1.0f)));
+    void *texture = nullptr;
+    if (p_image.is_valid() && !p_image->is_empty() && p_image->get_width() > 1) {
+        Ref<Image> image = p_image->duplicate();
+        if (image->is_compressed()) image->decompress();
+        image->convert(Image::FORMAT_RGBA8);
+        const Vector2 size(image->get_width(), image->get_height());
+        texture = vita_gxm_texture_create(image->get_width(), image->get_height(), image->get_data().ptr());
+        if (texture) {
+            float scale = MIN(960.0f / size.x, 544.0f / size.y);
+            if (p_stretch_mode == RSE::SPLASH_STRETCH_MODE_DISABLED) {
+                scale = MIN(scale, 1.0f);
+            } else if (!p_use_filter && scale >= 1.0f) {
+                scale = Math::floor(scale); // Pixel art: whole-pixel scaling.
+            }
+            const Vector2 extent = size * scale, origin = (Vector2(960, 544) - extent) * 0.5f;
+            const float xy[8] = { origin.x, origin.y, origin.x + extent.x, origin.y, origin.x + extent.x, origin.y + extent.y, origin.x, origin.y + extent.y };
+            const float uv[8] = { 0, 0, 1, 0, 1, 1, 0, 1 };
+            vita_gxm_texture_quad(texture, xy, uv, 0xffffffff, p_use_filter);
+        }
+    }
+    vita_gxm_end(1);
+    if (texture) vita_gxm_texture_free(texture);
+    fprintf(stderr, "[gxm2d] boot splash shown image=%dx%d\n", p_image.is_valid() ? p_image->get_width() : 0, p_image.is_valid() ? p_image->get_height() : 0);
+    fflush(stderr);
+}
+
 void RasterizerGXMVita::end_frame(bool present) {
     vita_gxm_begin(0xff000000);
     vita_gxm_end(present);

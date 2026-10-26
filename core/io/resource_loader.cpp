@@ -49,6 +49,10 @@
 #include "core/variant/variant_parser.h"
 #include "servers/rendering/rendering_server.h"
 
+#ifdef VITA_ENABLED
+#include <cstdio>
+#endif
+
 #ifdef DEBUG_LOAD_THREADED
 #define print_lt(m_text) print_line(m_text)
 #else
@@ -278,6 +282,17 @@ Ref<Resource> ResourceLoader::_load(const String &p_path, const String &p_origin
 
 	print_verbose(vformat("Loading resource: %s remapped: %s", p_path, _path_remap(p_path)));
 
+#ifdef VITA_ENABLED
+	// Load profiling for the Vita device logs: self time per resource (nested
+	// loads subtracted) and a per-extension summary for each top-level load.
+	static uint64_t vita_child_us[64] = {};
+	static HashMap<String, uint64_t> vita_ext_us;
+	static HashMap<String, int> vita_ext_count;
+	const int vita_depth = CLAMP(load_nesting - 1, 0, 63);
+	vita_child_us[vita_depth] = 0;
+	const uint64_t vita_started = OS::get_singleton()->get_ticks_usec();
+#endif
+
 	// Try all loaders and pick the first match for the type hint
 	bool found = false;
 	Ref<Resource> res;
@@ -291,6 +306,36 @@ Ref<Resource> ResourceLoader::_load(const String &p_path, const String &p_origin
 			break;
 		}
 	}
+
+#ifdef VITA_ENABLED
+	{
+		const uint64_t total_us = OS::get_singleton()->get_ticks_usec() - vita_started;
+		const uint64_t self_us = total_us > vita_child_us[vita_depth] ? total_us - vita_child_us[vita_depth] : 0;
+		if (vita_depth > 0) {
+			vita_child_us[vita_depth - 1] += total_us;
+		}
+		const String ext = p_path.get_extension();
+		vita_ext_us[ext] += self_us;
+		vita_ext_count[ext] += 1;
+		if (self_us >= 150000) {
+			fprintf(stderr, "[vita-load] slow self_ms=%u total_ms=%u depth=%d path=%s\n", unsigned(self_us / 1000), unsigned(total_us / 1000), vita_depth, p_path.utf8().get_data());
+			fflush(stderr);
+		}
+		if (vita_depth == 0) {
+			if (total_us >= 1000000) {
+				fprintf(stderr, "[vita-load] summary total_ms=%u path=%s\n", unsigned(total_us / 1000), p_path.utf8().get_data());
+				for (const KeyValue<String, uint64_t> &E : vita_ext_us) {
+					if (E.value >= 100000) {
+						fprintf(stderr, "[vita-load]   ext=%s count=%d self_ms=%u\n", E.key.utf8().get_data(), vita_ext_count[E.key], unsigned(E.value / 1000));
+					}
+				}
+				fflush(stderr);
+			}
+			vita_ext_us.clear();
+			vita_ext_count.clear();
+		}
+	}
+#endif
 
 	res_ref_overrides.erase(load_nesting);
 	load_nesting--;

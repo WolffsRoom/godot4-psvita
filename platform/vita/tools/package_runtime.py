@@ -36,12 +36,17 @@ def main():
     parser.add_argument("--livearea-dir", type=Path,
                         help="Optional LiveArea assets (icon0, pic0, bg0, startup, template)")
     parser.add_argument("--boot-animation", type=Path,
-                        help="Optional native 960x544 DVAN1 frame sequence (boot_anim.dat)")
+                        help="Override default native Godot Vita loading animation (DVAN1)")
+    parser.add_argument("--no-boot-animation", action="store_true",
+                        help="Disable native splash (for minimal/profiling builds)")
     parser.add_argument("--vitasdk", type=Path, default=os.environ.get("VITASDK", "/usr/local/vitasdk"))
     args = parser.parse_args()
     runtime, dependency, output, sdk = (p.resolve() for p in (args.runtime, args.ubo_build, args.output, args.vitasdk))
     livearea = args.livearea_dir.resolve() if args.livearea_dir else None
-    boot_animation = args.boot_animation.resolve() if args.boot_animation else None
+    if args.boot_animation and args.no_boot_animation:
+        parser.error("--boot-animation and --no-boot-animation are mutually exclusive")
+    default_boot = PLATFORM / "loader/boot_assets/custom_splash_960x544.dat"
+    boot_animation = (args.boot_animation or default_boot).resolve() if not args.no_boot_animation else None
     livearea_targets = {
         "icon0.png": "sce_sys/icon0.png",
         "pic0.png": "sce_sys/pic0.png",

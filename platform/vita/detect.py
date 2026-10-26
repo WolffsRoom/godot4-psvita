@@ -45,6 +45,7 @@ def get_opts():
     return [
         BoolVariable("use_vitagl", "Use VitaGL as the GL backend (required for the Compatibility renderer)", True),
         BoolVariable("vita_shared", "Build libgodot.so for the Vita loader", True),
+        BoolVariable("vita_gxm3d", "Build a separate experimental GXM 3D runtime", False),
         ("vita_gl_root", "Explicit patched VitaGL directory (library and source/vitaGL.h)", ""),
         BoolVariable("touch", "Enable touch input", True),
         BoolVariable("debug_symbols", "Add debugging symbols to release/template builds", False),

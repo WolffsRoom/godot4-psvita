@@ -29,6 +29,11 @@
 /**************************************************************************/
 
 #include "main.h"
+#include "core/os/vita_prof.h"
+#ifdef VITA_ENABLED
+#include <cstdio>
+uint64_t vita_prof_us[VITA_PROF_MAX] = {};
+#endif
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
@@ -3909,6 +3914,9 @@ static MainTimerSync main_timer_sync;
 // and should move on to `OS::run`, and EXIT_FAILURE otherwise for
 // an early exit with that error code.
 int Main::start() {
+#ifdef VITA_ENABLED
+	fprintf(stderr,"[dllp-start] 00 enter Main::start\n"); fflush(stderr);
+#endif
 	GodotProfileZone("start");
 	OS::get_singleton()->benchmark_begin_measure("Startup", "Main::Start");
 
@@ -4233,6 +4241,9 @@ int Main::start() {
 #endif // defined(OVERRIDE_PATH_ENABLED)
 
 	if (script.is_empty() && game_path.is_empty()) {
+#ifdef VITA_ENABLED
+		fprintf(stderr,"[dllp-start] 10 resolve main scene\n"); fflush(stderr);
+#endif
 		const String main_scene = GLOBAL_GET("application/run/main_scene");
 		if (main_scene.begins_with("uid://")) {
 			ResourceUID::ID id = ResourceUID::get_singleton()->text_to_id(main_scene);
@@ -4258,6 +4269,9 @@ int Main::start() {
 #endif
 
 	MainLoop *main_loop = nullptr;
+#ifdef VITA_ENABLED
+	fprintf(stderr,"[dllp-start] 20 create SceneTree\n"); fflush(stderr);
+#endif
 	if (editor) {
 		main_loop = memnew(SceneTree);
 	}
@@ -4330,6 +4344,9 @@ int Main::start() {
 	}
 
 	OS::get_singleton()->set_main_loop(main_loop);
+#ifdef VITA_ENABLED
+	fprintf(stderr,"[dllp-start] 30 SceneTree installed\n"); fflush(stderr);
+#endif
 
 	SceneTree *sml = Object::cast_to<SceneTree>(main_loop);
 	if (sml) {
@@ -4388,6 +4405,9 @@ int Main::start() {
 		}
 
 		ResourceLoader::add_custom_loaders();
+#ifdef VITA_ENABLED
+		fprintf(stderr,"[dllp-start] 40 custom loaders\n"); fflush(stderr);
+#endif
 		ResourceSaver::add_custom_savers();
 
 		if (!project_manager && !editor) { // game
@@ -4395,6 +4415,9 @@ int Main::start() {
 				//autoload
 				OS::get_singleton()->benchmark_begin_measure("Startup", "Load Autoloads");
 				HashMap<StringName, ProjectSettings::AutoloadInfo> autoloads(ProjectSettings::get_singleton()->get_autoload_list());
+#ifdef VITA_ENABLED
+			fprintf(stderr,"[dllp-start] 50 autoloads enumerated\n"); fflush(stderr);
+#endif
 
 				//first pass, add the constants so they exist before any script is loaded
 				for (const KeyValue<StringName, ProjectSettings::AutoloadInfo> &E : autoloads) {
@@ -4409,6 +4432,9 @@ int Main::start() {
 
 				//second pass, load into global constants
 				List<Node *> to_add;
+#ifdef VITA_ENABLED
+			fprintf(stderr,"[dllp-start] 55 autoload instances\n"); fflush(stderr);
+#endif
 				for (const KeyValue<StringName, ProjectSettings::AutoloadInfo> &E : autoloads) {
 					const ProjectSettings::AutoloadInfo &info = E.value;
 
@@ -4655,13 +4681,25 @@ int Main::start() {
 
 			if (!game_path.is_empty()) {
 				Node *scene = nullptr;
+#ifdef VITA_ENABLED
+			fprintf(stderr,"[dllp-start] 70 before scene load\n"); fflush(stderr);
+#endif
 				Ref<PackedScene> scenedata = ResourceLoader::load(local_game_path);
+#ifdef VITA_ENABLED
+			fprintf(stderr,"[dllp-start] 75 scene resource loaded\n"); fflush(stderr);
+#endif
 				if (scenedata.is_valid()) {
 					scene = scenedata->instantiate();
+#ifdef VITA_ENABLED
+			fprintf(stderr,"[dllp-start] 80 main scene instantiated\n"); fflush(stderr);
+#endif
 				}
 
 				ERR_FAIL_NULL_V_MSG(scene, EXIT_FAILURE, "Failed loading scene: " + local_game_path + ".");
 				sml->add_current_scene(scene);
+#ifdef VITA_ENABLED
+			fprintf(stderr,"[dllp-start] 85 scene attached\n"); fflush(stderr);
+#endif
 
 #ifdef MACOS_ENABLED
 #ifndef TOOLS_ENABLED
@@ -4782,6 +4820,9 @@ int Main::start() {
 	OS::get_singleton()->benchmark_end_measure("Startup", "Main::Start");
 	OS::get_singleton()->benchmark_dump();
 
+	#ifdef VITA_ENABLED
+	fprintf(stderr,"[dllp-start] 99 Main::start complete\n"); fflush(stderr);
+	#endif
 	return EXIT_SUCCESS;
 }
 
@@ -4894,7 +4935,12 @@ bool Main::iteration() {
 #endif // PHYSICS_2D_DISABLED
 
 		GodotProfileZoneGrouped(_physics_zone, "physics_process");
-		if (OS::get_singleton()->get_main_loop()->physics_process(physics_step * time_scale)) {
+		bool vita_physics_exit;
+		{
+			VITA_PROF(VITA_PROF_PHYSICS_SCRIPTS);
+			vita_physics_exit = OS::get_singleton()->get_main_loop()->physics_process(physics_step * time_scale);
+		}
+		if (vita_physics_exit) {
 #ifndef PHYSICS_3D_DISABLED
 			PhysicsServer3D::get_singleton()->end_sync();
 #endif // PHYSICS_3D_DISABLED
@@ -4921,6 +4967,9 @@ bool Main::iteration() {
 
 		navigation_process_ticks = MAX(navigation_process_ticks, OS::get_singleton()->get_ticks_usec() - navigation_begin); // keep the largest one for reference
 		navigation_process_max = MAX(OS::get_singleton()->get_ticks_usec() - navigation_begin, navigation_process_max);
+#ifdef VITA_ENABLED
+		vita_prof_us[VITA_PROF_NAVIGATION] += OS::get_singleton()->get_ticks_usec() - navigation_begin;
+#endif
 
 		message_queue->flush();
 #endif // !defined(NAVIGATION_2D_DISABLED) || !defined(NAVIGATION_3D_DISABLED)
@@ -4928,13 +4977,19 @@ bool Main::iteration() {
 #ifndef PHYSICS_3D_DISABLED
 		GodotProfileZoneGrouped(_profile_zone, "3D physics");
 		PhysicsServer3D::get_singleton()->end_sync();
-		PhysicsServer3D::get_singleton()->step(physics_step * time_scale);
+		{
+			VITA_PROF(VITA_PROF_PHYSICS_3D);
+			PhysicsServer3D::get_singleton()->step(physics_step * time_scale);
+		}
 #endif // PHYSICS_3D_DISABLED
 
 #ifndef PHYSICS_2D_DISABLED
 		GodotProfileZoneGrouped(_profile_zone, "2D physics");
 		PhysicsServer2D::get_singleton()->end_sync();
-		PhysicsServer2D::get_singleton()->step(physics_step * time_scale);
+		{
+			VITA_PROF(VITA_PROF_PHYSICS_2D);
+			PhysicsServer2D::get_singleton()->step(physics_step * time_scale);
+		}
 #endif // PHYSICS_2D_DISABLED
 
 		message_queue->flush();
@@ -4955,7 +5010,12 @@ bool Main::iteration() {
 	uint64_t process_begin = OS::get_singleton()->get_ticks_usec();
 
 	GodotProfileZoneGrouped(_profile_zone, "process");
-	if (OS::get_singleton()->get_main_loop()->process(process_step * time_scale)) {
+	bool vita_process_exit;
+	{
+		VITA_PROF(VITA_PROF_PROCESS);
+		vita_process_exit = OS::get_singleton()->get_main_loop()->process(process_step * time_scale);
+	}
+	if (vita_process_exit) {
 		exit = true;
 	}
 	message_queue->flush();
@@ -4982,17 +5042,40 @@ bool Main::iteration() {
 		wants_present |= force_redraw_requested;
 		if ((!force_redraw_requested) && OS::get_singleton()->is_in_low_processor_usage_mode()) {
 			if (RenderingServer::get_singleton()->has_changed()) {
-				RenderingServer::get_singleton()->draw(wants_present, scaled_step); // flush visual commands
+				{
+					VITA_PROF(VITA_PROF_RENDER);
+					RenderingServer::get_singleton()->draw(wants_present, scaled_step); // flush visual commands
+				}
 				Engine::get_singleton()->increment_frames_drawn();
 			}
 		} else {
-			RenderingServer::get_singleton()->draw(wants_present, scaled_step); // flush visual commands
+			{
+				VITA_PROF(VITA_PROF_RENDER);
+				RenderingServer::get_singleton()->draw(wants_present, scaled_step); // flush visual commands
+			}
 			Engine::get_singleton()->increment_frames_drawn();
 			force_redraw_requested = false;
 		}
 	}
 
 	process_ticks = OS::get_singleton()->get_ticks_usec() - process_begin;
+#ifdef VITA_ENABLED
+	{
+		static unsigned vita_prof_frames = 0;
+		if (++vita_prof_frames == 300) {
+			static const char *names[VITA_PROF_MAX] = { "process", "physics_scripts", "navigation", "physics3d", "physics2d", "render", "animation", "skeleton", "audio3d" };
+			char line[512];
+			int length = snprintf(line, sizeof(line), "[vita-prof] avg_us_per_frame");
+			for (int i = 0; i < VITA_PROF_MAX; i++) {
+				length += snprintf(line + length, sizeof(line) - length, " %s=%u", names[i], unsigned(vita_prof_us[i] / vita_prof_frames));
+				vita_prof_us[i] = 0;
+			}
+			fprintf(stderr, "%s\n", line);
+			fflush(stderr);
+			vita_prof_frames = 0;
+		}
+	}
+#endif
 	process_max = MAX(process_ticks, process_max);
 	uint64_t frame_time = OS::get_singleton()->get_ticks_usec() - ticks;
 

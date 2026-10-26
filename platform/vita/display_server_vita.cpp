@@ -73,6 +73,7 @@ DisplayServer *DisplayServerVita::create_func(const String &p_rendering_driver, 
 
 DisplayServerVita::DisplayServerVita(const String &p_rendering_driver, WindowMode p_mode, VSyncMode p_vsync_mode, uint32_t p_flags, const Vector2i &p_resolution, Error &r_error) {
 	r_error = ERR_UNAVAILABLE;
+	Input::get_singleton()->set_event_dispatch_function(_dispatch_input_events);
 
 	// Keep Godot's Compatibility selection for this experimental canvas.
 	// The package marker selects GXM before any VitaGL initialization.
@@ -138,6 +139,21 @@ bool DisplayServerVita::has_feature(Feature p_feature) const {
 
 // --- Frame ------------------------------------------------------------------
 
+void DisplayServerVita::_dispatch_input_events(const Ref<InputEvent> &p_event) {
+	DisplayServerVita *server = get_singleton();
+	if (!server) {
+		return;
+	}
+	Ref<InputEventMouse> mouse = p_event;
+	if (mouse.is_valid()) {
+		server->mouse_position = mouse->get_position();
+		server->mouse_button_mask = MouseButtonMask(int(mouse->get_button_mask()));
+	}
+	if (server->input_event_callback.is_valid()) {
+		server->input_event_callback.call(p_event);
+	}
+}
+
 void DisplayServerVita::process_events() {
 	if (joypad) {
 		joypad->process_joypads();
@@ -159,14 +175,88 @@ void DisplayServerVita::swap_buffers() {
 
 void DisplayServerVita::_process_touch() {
 	SceTouchData touch;
-	sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
+	if (sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1) < 0) {
+		return;
+	}
+	// Each physical finger keeps a stable Godot index (slot) for its whole
+	// contact, so index 0 drives Input's touch-to-mouse emulation.
+	static int slot_id[SCE_TOUCH_MAX_REPORT];
+	static bool slots_ready = false;
+	if (!slots_ready) {
+		for (int i = 0; i < SCE_TOUCH_MAX_REPORT; i++) {
+			slot_id[i] = -1;
+		}
+		slots_ready = true;
+	}
+	Input *in = Input::get_singleton();
+	const Vector2 scale = (front_panel_size.x > 0 && front_panel_size.y > 0)
+			? Vector2(960.0f / front_panel_size.x, 544.0f / front_panel_size.y)
+			: Vector2(0.5f, 0.5f);
+	const int count = MIN((int)touch.reportNum, (int)SCE_TOUCH_MAX_REPORT);
 
-	// (Same index/drag bookkeeping as the 3.x port; ported to 4.x InputEvent API.)
-	// TODO: port the new-touch / lost-touch / drag logic from the 3.x os_vita.cpp
-	// process_touch(), replacing InputEventScreenTouch->instance() with
-	// Ref<InputEventScreenTouch> ev; ev.instantiate(); and parse via
-	// Input::get_singleton()->parse_input_event(ev);
-	(void)touch;
+	for (int s = 0; s < SCE_TOUCH_MAX_REPORT; s++) {
+		if (slot_id[s] < 0) {
+			continue;
+		}
+		bool present = false;
+		for (int i = 0; i < count; i++) {
+			if ((int)touch.report[i].id == slot_id[s]) {
+				present = true;
+				break;
+			}
+		}
+		if (!present) {
+			Ref<InputEventScreenTouch> ev;
+			ev.instantiate();
+			ev->set_index(s);
+			ev->set_position(last_touch_pos[s]);
+			ev->set_pressed(false);
+			in->parse_input_event(ev);
+			slot_id[s] = -1;
+		}
+	}
+
+	uint32_t active = 0;
+	for (int i = 0; i < count; i++) {
+		const int id = touch.report[i].id;
+		const Vector2 pos = Vector2(touch.report[i].x, touch.report[i].y) * scale;
+		int slot = -1;
+		for (int s = 0; s < SCE_TOUCH_MAX_REPORT; s++) {
+			if (slot_id[s] == id) {
+				slot = s;
+				break;
+			}
+		}
+		if (slot < 0) {
+			for (int s = 0; s < SCE_TOUCH_MAX_REPORT; s++) {
+				if (slot_id[s] < 0) {
+					slot = s;
+					break;
+				}
+			}
+			if (slot < 0) {
+				continue;
+			}
+			slot_id[slot] = id;
+			Ref<InputEventScreenTouch> ev;
+			ev.instantiate();
+			ev->set_index(slot);
+			ev->set_position(pos);
+			ev->set_pressed(true);
+			in->parse_input_event(ev);
+		} else if (pos != last_touch_pos[slot]) {
+			Ref<InputEventScreenDrag> ev;
+			ev.instantiate();
+			ev->set_index(slot);
+			ev->set_position(pos);
+			ev->set_relative(pos - last_touch_pos[slot]);
+			ev->set_relative_screen_position(pos - last_touch_pos[slot]);
+			in->parse_input_event(ev);
+		}
+		last_touch_pos[slot] = pos;
+		active++;
+	}
+	last_touch_count = active;
 }
 
 void DisplayServerVita::_process_motion() {
@@ -193,6 +283,8 @@ Size2i DisplayServerVita::window_get_min_size(WindowID p_window) const { return 
 
 void DisplayServerVita::window_set_vsync_mode(VSyncMode p_vsync_mode, WindowID p_window) {
 	vsync_mode = p_vsync_mode;
+	// Native GXM path: vita2d waits for vblank before each swap.
+	vita_gxm_set_vsync(p_vsync_mode != VSYNC_DISABLED);
 #ifdef GLES3_ENABLED
 	if (gl_manager) {
 		gl_manager->set_use_vsync(p_vsync_mode != VSYNC_DISABLED);

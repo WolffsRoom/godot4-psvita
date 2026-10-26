@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "audio_stream_player_3d.h"
+#include "core/os/vita_prof.h"
 #include "audio_stream_player_3d.compat.inc"
 
 #include "core/config/project_settings.h"
@@ -281,6 +282,7 @@ void AudioStreamPlayer3D::_notification(int p_what) {
 		} break;
 
 		case NOTIFICATION_INTERNAL_PHYSICS_PROCESS: {
+			VITA_PROF(VITA_PROF_AUDIO3D);
 			// Update anything related to position first, if possible of course.
 			Vector<AudioFrame> volume_vector;
 			if (setplay.get() > 0 || (internal->active.is_set() && last_mix_count != AudioServer::get_singleton()->get_mix_count()) || force_update_panning) {

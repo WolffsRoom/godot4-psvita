@@ -57,6 +57,7 @@ class DisplayServerVita : public DisplayServer {
 	// GDCLASS not used: DisplayServer subclasses are registered manually.
 
 	Point2i mouse_position;
+	MouseMode mouse_mode = MOUSE_MODE_HIDDEN;
 	MouseButtonMask mouse_button_mask;
 
 #ifdef GLES3_ENABLED
@@ -73,6 +74,7 @@ class DisplayServerVita : public DisplayServer {
 	void _process_motion();
 
 	static DisplayServerVita *get_singleton();
+	static void _dispatch_input_events(const Ref<InputEvent> &p_event);
 
 public:
 	static void register_vita_driver();
@@ -146,8 +148,8 @@ public:
 	virtual void swap_buffers() override;
 
 	// --- Mouse / cursor (no hardware mouse; touch emulates it) ---------------
-	virtual void mouse_set_mode(MouseMode p_mode) override {}
-	virtual MouseMode mouse_get_mode() const override { return MOUSE_MODE_HIDDEN; }
+	virtual void mouse_set_mode(MouseMode p_mode) override { mouse_mode = p_mode; }
+	virtual MouseMode mouse_get_mode() const override { return mouse_mode; }
 	virtual Point2i mouse_get_position() const override { return mouse_position; }
 	virtual BitField<MouseButtonMask> mouse_get_button_state() const override { return mouse_button_mask; }
 
