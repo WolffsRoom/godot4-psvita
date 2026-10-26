@@ -22,26 +22,59 @@
   <img src="https://img.shields.io/badge/2D-NATIVE%20GXM-4caf50?style=for-the-badge" alt="Native GXM 2D">
   <img src="https://img.shields.io/badge/3D-EXPERIMENTAL-ffc107?style=for-the-badge" alt="Experimental 3D">
 </div>
+<br>
+<div align="center">
+  <i>If you enjoy my work, consider supporting the development!</i>
+  <br
+  <a href="https://www.buymeacoffee.com/5rsrt7j4z8f">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48">
+  </a>
+</div>
 
 ---
 
-## Contents
 
-- [Default game loading screen](#default-game-loading-screen)
-- [What this project is](#what-this-project-is)
-- [Windows editor with PS Vita export](#windows-editor-with-ps-vita-export)
-- [LiveArea template selection with previews](#livearea-template-selection-with-previews)
-- [PS Vita trophies (in development)](#ps-vita-trophies-in-development)
-- [Runtime architecture](#runtime-architecture)
-- [Native GXM 2D renderer](#native-gxm-2d-renderer)
-- [Experimental GXM 3D renderer](#experimental-gxm-3d-renderer)
-- [Audio, input, memory and data loading](#audio-input-memory-and-data-loading)
-- [Games running on this engine](#games-running-on-this-engine)
-- [Download and quick start](#download-and-quick-start)
+<h2 align="center">Table of Contents</h2>
+
+<details open>
+<summary><b>Overview and Features</b></summary>
+
+- [Default Game Loading Screen](#default-game-loading-screen)
+- [What This Project Is](#what-this-project-is)
+- [Windows Editor with PS Vita Export](#windows-editor-with-ps-vita-export)
+- [LiveArea Template Selection with Previews](#livearea-template-selection-with-previews)
+- [PS Vita Trophies (In Development)](#ps-vita-trophies-in-development)
+
+</details>
+
+<details open>
+<summary><b>Engine and Architecture</b></summary>
+
+- [Runtime Architecture](#runtime-architecture)
+- [Native GXM 2D Renderer](#native-gxm-2d-renderer)
+- [Experimental GXM 3D Renderer](#experimental-gxm-3d-renderer)
+- [Audio, Input, Memory and Data Loading](#audio-input-memory-and-data-loading)
+
+</details>
+
+<details open>
+<summary><b>Getting Started</b></summary>
+
+- [Games Running on This Engine](#games-running-on-this-engine)
+- [Download and Quick Start](#download-and-quick-start)
 - [Limitations](#limitations)
-- [Building from source](#building-from-source)
-- [Repository structure](#repository-structure)
+
+</details>
+
+<details open>
+<summary><b>Development and Resources</b></summary>
+
+- [Building from Source](#building-from-source)
+- [Repository Structure](#repository-structure)
 - [Credits](#credits)
+
+</details>
+
 
 ---
 
@@ -301,13 +334,9 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 
 ## Credits
 
-- [Godot Engine](https://github.com/godotengine/godot) — upstream engine ([README.godot.md](README.godot.md)); loading animation adapted from the official `custom_splash_screen` demo.
+- [Godot Engine](https://github.com/godotengine/godot) for upstream engine ([README.godot.md](README.godot.md)); loading animation adapted from the official `custom_splash_screen` demo.
 - [VitaSDK](https://vitasdk.org), [VitaGL](https://github.com/Rinnegatamante/vitagl), [libvita2d](https://github.com/xerpi/libvita2d), [kuBridge](https://github.com/TheOfficialFloW/kuBridge), [NoTrpDrm](https://github.com/Rinnegatamante/NoTrpDrm).
-- [SonicMastr/godot-vita](https://github.com/SonicMastr/godot-vita) — Godot 3.x Vita port reference.
+- [SonicMastr/godot-vita](https://github.com/SonicMastr/godot-vita) for Godot 3.x Vita port reference.
 - LiveArea layout previews: [PSDevWiki](https://www.psdevwiki.com/vita/) (GFDL 1.2).
 
-Godot engine code and port additions are provided under the [MIT license](LICENSE.txt); third-party components retain their respective licenses.
-
-_If you enjoy my work, consider supporting the development!_
-
-[<img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48">](https://www.buymeacoffee.com/5rsrt7j4z8f)
+_Godot engine code and port additions are provided under the [MIT license](LICENSE.txt); third-party components retain their respective licenses._
