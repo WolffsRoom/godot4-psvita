@@ -33,8 +33,15 @@
 #include "image_loader_svg.h"
 
 #include <thorvg.h>
+#include <stdio.h>
 
-#ifdef THREADS_ENABLED
+// The Vita runner uses pthread compatibility shims; keep ThorVG rendering
+// synchronous to avoid std::thread / condition_variable worker deadlocks
+// and undefined-instruction exceptions observed during OptionButton creation.
+// This does not disable SVG: it only changes the task queue's execution model.
+#if defined(VITA_ENABLED)
+#define TVG_THREADS 0
+#elif defined(THREADS_ENABLED)
 #define TVG_THREADS 1
 #else
 #define TVG_THREADS 0
@@ -47,6 +54,10 @@ void initialize_svg_module(ModuleInitializationLevel p_level) {
 		return;
 	}
 
+#if defined(VITA_ENABLED)
+    fprintf(stderr, "[dllp-thorvg] initializing SVG renderer with %u worker threads\n", (unsigned)TVG_THREADS);
+    fflush(stderr);
+#endif
 	if (tvg::Initializer::init(TVG_THREADS) != tvg::Result::Success) {
 		return;
 	}

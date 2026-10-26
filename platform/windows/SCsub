@@ -42,6 +42,11 @@ common_win_wrap = [
     "console_wrapper_windows.cpp",
 ]
 
+if not env.msvc:
+    # Core CryptoCore references PSA functions in the earlier mbedTLS module
+    # archive. MinGW's one-pass archive lookup needs a rescan for this cycle.
+    env["LINKCOM"] = env["LINKCOM"].replace("$_LIBFLAGS", "-Wl,--start-group $_LIBFLAGS -Wl,--end-group")
+
 env_wrap = env.Clone()
 
 if env["arch"] == "x86_64" and env["library_type"] == "executable":
