@@ -11,7 +11,7 @@
 </p>
 
 <div align="center">
-  <img src="https://img.shields.io/badge/RELEASE-v0.1%20PREVIEW-377bb5?style=for-the-badge" alt="v0.1 preview">
+  <a href="https://github.com/WolffsRoom/godot4-psvita/releases/latest"><img src="https://img.shields.io/github/v/release/WolffsRoom/godot4-psvita?style=for-the-badge&label=RELEASE&color=377bb5" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/GODOT-4.8--dev7-478cbf?style=for-the-badge&logo=godotengine&logoColor=white" alt="Godot 4.8-dev7">
   <img src="https://img.shields.io/badge/2D-NATIVE%20GXM-4caf50?style=for-the-badge" alt="Native GXM 2D">
   <img src="https://img.shields.io/badge/3D-EXPERIMENTAL-ffc107?style=for-the-badge" alt="Experimental 3D">
@@ -233,7 +233,7 @@ Not available yet: real-time shadow maps, fog, screen-space effects, custom spat
 
 ## Download and quick start
 
-1. Download **`Godot4Vita-v0.1-Windows-x64.zip`** from [Releases](https://github.com/WolffsRoom/godot4-psvita/releases) and extract the whole folder. Keep `vita/` next to `Godot4Vita.exe`.
+1. Download **`Godot4Vita-v0.1-Windows-x64.zip`** from the [latest release](https://github.com/WolffsRoom/godot4-psvita/releases/latest) and extract the whole folder. Keep `vita/` next to `Godot4Vita.exe`.
 2. Open or create a project. In **Project > Export > Add…** choose **PS Vita** and click **Prepare settings for PS Vita**.
 3. Set the title, a unique 9-character Title ID and the version, choose the LiveArea style and the data folder name.
 4. Click **Export Project** and save the `.vpk`.
