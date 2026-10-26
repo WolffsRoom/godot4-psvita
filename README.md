@@ -1,4 +1,8 @@
-<img width="1025" height="415" alt="Godot4Vita-Black" src="https://github.com/user-attachments/assets/ce92f4f5-90ce-4fe9-9aa4-2e29b735b25a" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/Godot4Vita-White.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/Godot4Vita-Black.png">
+  <img width="1025" height="415" alt="Godot 4 for PlayStation Vita" src="docs/images/Godot4Vita-Black.png">
+</picture>
 <h1 align="center">GODOT 4 VITA</h1>
 
 <p align="center">
