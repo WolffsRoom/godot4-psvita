@@ -5,11 +5,6 @@
     <img src="docs/images/Godot4Vita-Black.png" alt="Godot 4 for PlayStation Vita" width="1025">
   </picture>
 </p>
-<h1 align="center">GODOT 4 VITA</h1>
-
-<p align="center">
-  <strong>An experimental port of Godot 4.X to PlayStation Vita</strong>
-</p>
 
 <p align="center">
   <em>A custom Godot 4.8-dev7 runtime with native GXM rendering, plus a Windows editor that exports PS Vita VPKs directly.<br>
