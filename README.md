@@ -1,8 +1,10 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/Godot4Vita-White.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/Godot4Vita-Black.png">
-  <img width="1025" height="415" alt="Godot 4 for PlayStation Vita" src="docs/images/Godot4Vita-Black.png">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/Godot4Vita-White.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/images/Godot4Vita-Black.png">
+    <img src="docs/images/Godot4Vita-Black.png" alt="Godot 4 for PlayStation Vita" width="1025">
+  </picture>
+</p>
 <h1 align="center">GODOT 4 VITA</h1>
 
 <p align="center">
