@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://main.gd" id="1"]
+[ext_resource type="Texture2D" path="res://vita_icon.png" id="2"]
+
+[node name="CanvasFeatures" type="Node2D"]
+script = ExtResource("1")
+
+[node name="ImportedTexture" type="Sprite2D" parent="."]
+position = Vector2(890, 465)
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("2")

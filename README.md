@@ -101,6 +101,27 @@ The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appea
   <img src="docs/images/export_options.png" alt="PS Vita export options" width="900">
 </p>
 
+### Projects opened in the editor
+
+The same editor opens and exports the ported games. These projects were adapted for the Vita runtime (960 × 544 viewport, Compatibility renderer, PS Vita preset) and open normally on the PC:
+
+<p align="center">
+  <img src="docs/images/editor_dodge_the_creeps.png" alt="Dodge the Creeps open in Godot4Vita" width="900">
+  <br><em>Dodge the Creeps (2D, the engine's first test game)</em>
+</p>
+<p align="center">
+  <img src="docs/images/editor_tenebrarium.png" alt="Tenebrarium open in Godot4Vita" width="900">
+  <br><em>Tenebrarium (2D, native GXM canvas with NinePatch and polygons)</em>
+</p>
+<p align="center">
+  <img src="docs/images/editor_overburden.png" alt="Overburden open in Godot4Vita" width="900">
+  <br><em>OVERBURDEN (first 3D port, experimental GXM 3D)</em>
+</p>
+
+### Example export
+
+[`examples/vita_export`](examples/vita_export) contains a minimal project, the `Exemplo.vpk` exported from it and its `ux0:data/exemplovita` data folder. Use it as a reference for the expected VPK and data layout, or install it to check that a Vita is ready for this runtime.
+
 ---
 
 ## LiveArea template selection with previews
@@ -113,7 +134,7 @@ The LiveArea is the Vita home screen page of a game. Its layout is defined by `s
 
 - The exporter writes a `template.xml` matching the selected style, with the background and startup images, and validates that game styles are used for games.
 - Previews come from PSDevWiki (GFDL 1.2, see `previews/ATTRIBUTION.md`) and are shipped with the editor.
-- Icon, background and startup images must be **8-bit indexed PNG** (the Vita rejects ordinary RGBA PNGs in LiveArea). The default Godot Vita images already follow that rule.
+- Icon, background and startup images must be **8-bit indexed PNG** (palette PNG, not RGB/RGBA) with exactly the sizes of the default files: `icon0.png` 128 × 128, `bg0.png` 840 × 500 and `startup.png` 280 × 158. Use the bundled defaults in `vita/defaults/` as the format reference; the exporter rejects images that do not match.
 
 ---
 
