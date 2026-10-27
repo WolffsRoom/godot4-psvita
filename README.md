@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/Godot4Vita-White.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/images/Godot4Vita-Black.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/images/Godot4Vita-White.png">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/Godot4Vita-Black.png">
     <img src="docs/images/Godot4Vita-Black.png" alt="Godot 4 for PlayStation Vita" width="1025">
   </picture>
 </p>
