@@ -258,7 +258,7 @@ Not available yet: real-time shadow maps, fog, screen-space effects, custom spat
 |---|---|---|
 | [Dodge the Creeps](https://github.com/WolffsRoom/DodgeTheCreeps-PSVita) | 2D, Godot's official demo | **First game on the engine.** Gameplay, collisions, HUD, audio and controls confirmed on a physical Vita. |
 | [Ambidextro](https://github.com/WolffsRoom/Ambidextro-Vita) | 2D commercial game | Beta release; playable on hardware with the native GXM 2D renderer. |
-| Deltarune Lightners Live Plus | 2D fan game | Runs on hardware; used to validate `game.pck` loading and the audio fixes. |
+| [Deltarune Lightners Live Plus](https://github.com/WolffsRoom/DeltaruneLightnersVita) | 2D fan game | Playable and v1.0 available (60 FPS) |
 | [Tenebrarium](https://github.com/WolffsRoom/TenebrariumVita) | 2D | Alpha; runs on hardware. Drove NinePatch, polygons, SubViewport, batching and touch support. |
 | [OVERBURDEN](https://github.com/WolffsRoom/OVERBURDEN-Vita) | **First 3D game** | In development; full game playable on hardware at ~30 FPS with the experimental GXM 3D renderer. |
 | Buckshot Roulette | 3D | Internal validation of the 3D limits: boots, main menu and options work; gameplay does not start yet because of the complexity of its 3D scene. |
