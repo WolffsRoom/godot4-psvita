@@ -198,6 +198,33 @@ int vita_gxm_init(void) {
     log_free_memory("renderer_init");
     return initialized;
 }
+/* Scene guard. vita2d ignores sceGxmBeginScene failures and keeps drawing;
+ * the first default-uniform reservation then writes through an invalid
+ * pointer inside SceGxm (data abort). A reservation only succeeds inside a
+ * scene that really began: on failure end it, drain the GPU and retry once,
+ * then skip the scene rather than crash. */
+extern SceGxmVertexProgram *_vita2d_colorVertexProgram;
+static int scene_began(void) {
+    SceGxmContext *ctx = vita2d_get_context();
+    sceGxmSetVertexProgram(ctx, _vita2d_colorVertexProgram);
+    void *probe = NULL;
+    return sceGxmReserveVertexDefaultUniformBuffer(ctx, &probe) >= 0 && probe != NULL;
+}
+static int start_scene(vita2d_texture *target, unsigned flags, const char *where) {
+    static unsigned failures;
+    vita2d_start_drawing_advanced(target, flags);
+    if (scene_began()) return 1;
+    fprintf(stderr, "[gxm2d] scene failed to begin at %s flags=0x%x failures=%u; retrying\n", where, flags, ++failures);
+    fflush(stderr);
+    vita2d_end_drawing();
+    sceGxmFinish(vita2d_get_context());
+    vita2d_start_drawing_advanced(target, flags & ~SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY);
+    if (scene_began()) return 1;
+    fprintf(stderr, "[gxm2d] scene still failed at %s; skipping it\n", where);
+    fflush(stderr);
+    vita2d_end_drawing();
+    return 0;
+}
 void vita_gxm_begin(uint32_t color) {
     if (!initialized || drawing) return;
     if ((memory_frame++ % 600) == 0) log_free_memory("frame");
@@ -205,8 +232,9 @@ void vita_gxm_begin(uint32_t color) {
     /* Not vita2d_start_drawing(): it resets the vertex pool, which an
      * offscreen scene earlier in this frame may still be reading. The pool
      * is reset by wait_gpu() once the previous frame is done. */
-    vita2d_start_drawing_advanced(NULL, target_dependency ? SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY : 0);
+    int began = start_scene(NULL, target_dependency ? SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY : 0, "display");
     target_dependency = 0;
+    if (!began) return;
     vita2d_disable_clipping();
     clip_enabled_cache = 0;
     vita2d_set_clear_color(color);
@@ -240,6 +268,9 @@ void vita_gxm_quad(const float *xy, uint32_t color) {
 }
 void vita_gxm_clip(int enabled, int x, int y, int width, int height) {
     if (target_drawing) return; /* Offscreen targets draw unclipped. */
+    if (!drawing) return; /* vita2d's clip draws stencil rectangles: only inside a scene. */
+    /* A full-screen clip is no clip: skip vita2d's two stencil rectangles. */
+    if (enabled && x <= 0 && y <= 0 && x + width >= 960 && y + height >= 544) enabled = 0;
     if (enabled == clip_enabled_cache && (!enabled || (clip_rect_cache[0] == x && clip_rect_cache[1] == y &&
             clip_rect_cache[2] == width && clip_rect_cache[3] == height))) {
         return;
@@ -317,7 +348,7 @@ int vita_gxm_target_begin(void *target, uint32_t clear_color) {
     if (!initialized || !t || drawing || target_drawing) return 0;
     /* Targets are the first scene of a frame: release the previous one. */
     wait_gpu();
-    vita2d_start_drawing_advanced(t->texture, SCE_GXM_SCENE_FRAGMENT_SET_DEPENDENCY);
+    if (!start_scene(t->texture, SCE_GXM_SCENE_FRAGMENT_SET_DEPENDENCY, "subviewport")) return 0;
     SceGxmContext *ctx = vita2d_get_context();
     float w = (float)vita2d_texture_get_width(t->texture), h = (float)vita2d_texture_get_height(t->texture);
     sceGxmSetViewport(ctx, w * 0.5f, w * 0.5f, h * 0.5f, -h * 0.5f, 0.5f, 0.5f);
