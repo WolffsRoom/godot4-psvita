@@ -11,6 +11,7 @@ void vita_gxm_scene3d_end(void);
  * and drawn every frame without CPU vertex conversion. */
 void *vita_gxm_mesh_create(const float *xyz, const float *uv, unsigned count);
 int vita_gxm_mesh_draw(void *mesh, void *texture, const float *mvp, uint32_t color);
+int vita_gxm_mesh_update(void *mesh, const float *xyz, const float *uv, unsigned count); // In-place rewrite
 void vita_gxm_mesh_reset(void);
 unsigned vita_gxm_mesh_arena_used(void);
 unsigned vita_gxm_last_gpu_wait_us(void);
@@ -31,6 +32,10 @@ void vita_gxm_clip(int enabled, int x, int y, int width, int height);
 void *vita_gxm_target_create(int width, int height);
 int vita_gxm_target_begin(void *target, uint32_t clear_color);
 void vita_gxm_target_end(void);
+/* Tilt-shift. begin_offscreen replaces vita_gxm_begin for the 3D
+ * pass; resolve composites it onto the display before the UI draws. */
+int vita_gxm_begin_offscreen(uint32_t color);
+void vita_gxm_tiltshift_resolve(float top, float bottom, float strength);
 void vita_gxm_end(int present);
 void vita_gxm_finish(void);
 #ifdef __cplusplus
