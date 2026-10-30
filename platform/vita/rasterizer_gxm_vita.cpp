@@ -310,6 +310,8 @@ public:
     }
     void render_target_do_clear_request(RID rid) override {
         if (!is_screen(rid)) return;
+        // Tilt-shift begins the frame in the 3D pass.
+        if (bool(ProjectSettings::get_singleton()->get_setting("rendering/vita/tilt_shift", false))) return;
         vita_gxm_begin(gxm_color(render_target_get_clear_request_color(rid)));
         render_target_disable_clear_request(rid);
     }

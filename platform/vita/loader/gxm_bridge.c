@@ -754,6 +754,12 @@ static void tilt_ramp(float r0, float r1, float top, float bottom, float strengt
 }
 
 int vita_gxm_begin_offscreen(uint32_t color) {
+    static int skip_logged;
+    if (initialized && (drawing || target_drawing) && !skip_logged) {
+        skip_logged = 1;
+        fprintf(stderr, "[gxm3d] tilt-shift skipped: frame already begun before the 3D pass\n");
+        fflush(stderr);
+    }
     if (!initialized || drawing || target_drawing || !scene3d_enabled || !tilt_ready()) return 0;
     if ((memory_frame++ % 600) == 0) log_free_memory("frame");
     wait_gpu();
