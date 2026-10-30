@@ -272,8 +272,10 @@ static void wait_gpu(void) {
     }
     vita2d_pool_reset();
 }
+static int tilt_offscreen; /* The 3D pass is in the tilt-shift target */
 void vita_gxm_end(int present) {
     if (!drawing) return;
+    if (tilt_offscreen) vita_gxm_tiltshift_resolve(0.0f, 1.0f, 0.0f);
     flush_batch();
     vita_gxm_scene3d_end();
     vita2d_disable_clipping();
@@ -447,6 +449,17 @@ int vita_gxm_mesh_draw(void *handle, void *texture, const float *mvp, uint32_t c
     }
     return 1;
 }
+/* Rewrites a mesh in its existing arena slot (same vertex count). */
+int vita_gxm_mesh_update(void *handle, const float *xyz, const float *uv, unsigned count) {
+    GXMMesh *mesh = handle;
+    if (!mesh || !xyz || count != mesh->count) return 0;
+    for (unsigned i = 0; i < count; i++) {
+        vita2d_texture_vertex *v = &mesh->vertices[i];
+        v->x = xyz[i * 3]; v->y = xyz[i * 3 + 1]; v->z = xyz[i * 3 + 2];
+        v->u = uv ? uv[i * 2] : 0.0f; v->v = uv ? uv[i * 2 + 1] : 0.0f;
+    }
+    return 1;
+}
 void vita_gxm_mesh_reset(void) {
     mesh_arena_used = 0;
 }
@@ -560,4 +573,245 @@ int vita_gxm_light_mesh_draw(void *handle, const float *mvp) {
 /* Additive blending for glows and flares (the original shader uses blend_add). */
 void vita_gxm_blend_add(int enabled) {
     vita2d_set_blend_mode_add(enabled ? 1 : 0);
+}
+
+/* Tilt-shift blur. The 3D pass renders into a full-size target;
+ * resolve() halves it three times (each step a bilinear 2x2 box), softens the
+ * quarter and eighth levels with a 4-tap tent, copies the sharp frame to the
+ * display and blends the soft levels in through destination-alpha ramps that
+ * grow toward the top and bottom edges. vita2d's own shaders are reused with
+ * blend states that write colour only, so target alpha stays at 1. */
+extern const SceGxmProgram texture_v_gxp_start;
+extern const SceGxmProgram texture_f_gxp_start;
+extern const SceGxmProgram texture_tint_f_gxp_start;
+extern SceGxmVertexProgram *_vita2d_textureVertexProgram;
+extern const SceGxmProgramParameter *_vita2d_textureWvpParam;
+extern const SceGxmProgramParameter *_vita2d_textureTintColorParam;
+enum { TILT_FULL, TILT_HALF, TILT_QUARTER, TILT_QUARTER_SOFT, TILT_EIGHTH, TILT_EIGHTH_SOFT, TILT_COUNT };
+static const unsigned tilt_sizes[TILT_COUNT][2] = { {960, 544}, {480, 272}, {240, 136}, {240, 136}, {120, 68}, {120, 68} };
+static vita2d_texture *tilt_targets[TILT_COUNT];
+static SceGxmFragmentProgram *tilt_copy, *tilt_mix, *tilt_dst_mix, *tilt_alpha;
+static int tilt_failed;
+static float tilt_ortho[16];
+#define TILT_RGB (SCE_GXM_COLOR_MASK_R | SCE_GXM_COLOR_MASK_G | SCE_GXM_COLOR_MASK_B)
+
+static int tilt_fragment(SceGxmShaderPatcherId id, SceGxmColorMask mask, SceGxmBlendFactor src, SceGxmBlendFactor dst,
+        const SceGxmProgram *vertex, SceGxmFragmentProgram **out) {
+    SceGxmBlendInfo blend = {
+        .colorMask = mask,
+        .colorFunc = SCE_GXM_BLEND_FUNC_ADD,
+        .alphaFunc = SCE_GXM_BLEND_FUNC_ADD,
+        .colorSrc = src,
+        .colorDst = dst,
+        .alphaSrc = src,
+        .alphaDst = dst,
+    };
+    return sceGxmShaderPatcherCreateFragmentProgram(vita2d_get_shader_patcher(), id,
+            SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4, SCE_GXM_MULTISAMPLE_NONE, &blend, vertex, out);
+}
+
+static int tilt_ready(void) {
+    if (tilt_alpha) return 1;
+    if (tilt_failed) return 0;
+    int err = 0;
+    for (int i = 0; i < TILT_COUNT && err >= 0; i++) {
+        vita2d_texture *t = vita2d_create_empty_texture_rendertarget(tilt_sizes[i][0], tilt_sizes[i][1], SCE_GXM_TEXTURE_FORMAT_A8B8G8R8);
+        if (!t) { err = -1; break; }
+        memset(vita2d_texture_get_datap(t), 0xff, vita2d_texture_get_stride(t) * tilt_sizes[i][1]);
+        vita2d_texture_set_filters(t, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
+        sceGxmTextureSetUAddrMode(&t->gxm_tex, SCE_GXM_TEXTURE_ADDR_CLAMP);
+        sceGxmTextureSetVAddrMode(&t->gxm_tex, SCE_GXM_TEXTURE_ADDR_CLAMP);
+        tilt_targets[i] = t;
+        texture_bytes += vita_texture_allocation_bytes(tilt_sizes[i][0], tilt_sizes[i][1], 4);
+    }
+    SceGxmShaderPatcher *patcher = vita2d_get_shader_patcher();
+    SceGxmShaderPatcherId texture_id, tint_id, color_id;
+    if (err >= 0) err = patcher ? sceGxmShaderPatcherRegisterProgram(patcher, &texture_f_gxp_start, &texture_id) : -1;
+    if (err >= 0) err = sceGxmShaderPatcherRegisterProgram(patcher, &texture_tint_f_gxp_start, &tint_id);
+    if (err >= 0) err = sceGxmShaderPatcherRegisterProgram(patcher, &color_f_gxp_start, &color_id);
+    if (err >= 0) err = tilt_fragment(texture_id, TILT_RGB, SCE_GXM_BLEND_FACTOR_ONE, SCE_GXM_BLEND_FACTOR_ZERO, &texture_v_gxp_start, &tilt_copy);
+    if (err >= 0) err = tilt_fragment(tint_id, TILT_RGB, SCE_GXM_BLEND_FACTOR_SRC_ALPHA, SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, &texture_v_gxp_start, &tilt_mix);
+    if (err >= 0) err = tilt_fragment(texture_id, TILT_RGB, SCE_GXM_BLEND_FACTOR_DST_ALPHA, SCE_GXM_BLEND_FACTOR_ONE_MINUS_DST_ALPHA, &texture_v_gxp_start, &tilt_dst_mix);
+    if (err >= 0) err = tilt_fragment(color_id, SCE_GXM_COLOR_MASK_A, SCE_GXM_BLEND_FACTOR_ONE, SCE_GXM_BLEND_FACTOR_ZERO, &color_v_gxp_start, &tilt_alpha);
+    fprintf(stderr, "[gxm3d] tilt-shift targets and programs rc=0x%08x\n", (unsigned)err);
+    fflush(stderr);
+    if (err < 0 || !tilt_copy || !tilt_mix || !tilt_dst_mix || !tilt_alpha) {
+        for (int i = 0; i < TILT_COUNT; i++) {
+            if (!tilt_targets[i]) continue;
+            texture_bytes -= vita_texture_allocation_bytes(tilt_sizes[i][0], tilt_sizes[i][1], 4);
+            vita2d_free_texture(tilt_targets[i]);
+            tilt_targets[i] = NULL;
+        }
+        tilt_alpha = NULL;
+        tilt_failed = 1;
+        return 0;
+    }
+    memcpy(tilt_ortho, _vita2d_ortho_matrix, sizeof(tilt_ortho));
+    return 1;
+}
+
+static void tilt_states(SceGxmContext *ctx, unsigned width, unsigned height) {
+    sceGxmSetViewport(ctx, width * 0.5f, width * 0.5f, height * 0.5f, -(height * 0.5f), 0.5f, 0.5f);
+    vita2d_disable_clipping();
+    sceGxmSetFrontDepthFunc(ctx, SCE_GXM_DEPTH_FUNC_ALWAYS);
+    sceGxmSetBackDepthFunc(ctx, SCE_GXM_DEPTH_FUNC_ALWAYS);
+    sceGxmSetFrontDepthWriteEnable(ctx, SCE_GXM_DEPTH_WRITE_DISABLED);
+    sceGxmSetBackDepthWriteEnable(ctx, SCE_GXM_DEPTH_WRITE_DISABLED);
+}
+
+/* Full-width band of a target, in the shared 960x544 ortho space. */
+static void tilt_quad(SceGxmFragmentProgram *program, int source, float y0, float y1, float du, float dv, float alpha) {
+    vita2d_texture_vertex *v = vita2d_pool_memalign(4 * sizeof(*v), 8);
+    if (!v) return;
+    const float xs[4] = {0.0f, 960.0f, 0.0f, 960.0f}, ys[4] = {y0, y0, y1, y1};
+    for (int i = 0; i < 4; i++) {
+        v[i].x = xs[i]; v[i].y = ys[i]; v[i].z = 0.5f;
+        v[i].u = xs[i] / 960.0f + du; v[i].v = ys[i] / 544.0f + dv;
+    }
+    SceGxmContext *ctx = vita2d_get_context();
+    sceGxmSetVertexProgram(ctx, _vita2d_textureVertexProgram);
+    sceGxmSetFragmentProgram(ctx, program);
+    void *uniforms;
+    sceGxmReserveVertexDefaultUniformBuffer(ctx, &uniforms);
+    sceGxmSetUniformDataF(uniforms, _vita2d_textureWvpParam, 0, 16, tilt_ortho);
+    if (program == tilt_mix) {
+        const float tint[4] = {1.0f, 1.0f, 1.0f, alpha};
+        sceGxmReserveFragmentDefaultUniformBuffer(ctx, &uniforms);
+        sceGxmSetUniformDataF(uniforms, _vita2d_textureTintColorParam, 0, 4, tint);
+    }
+    sceGxmSetFragmentTexture(ctx, 0, &tilt_targets[source]->gxm_tex);
+    sceGxmSetVertexStream(ctx, 0, v);
+    sceGxmDraw(ctx, SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, SCE_GXM_INDEX_FORMAT_U16, vita2d_get_linear_indices(), 4);
+    stat_draws++;
+}
+
+static void tilt_begin(int target) {
+    vita2d_start_drawing_advanced(tilt_targets[target], SCE_GXM_SCENE_FRAGMENT_SET_DEPENDENCY | SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY);
+    tilt_states(vita2d_get_context(), tilt_sizes[target][0], tilt_sizes[target][1]);
+    stat_targets++;
+}
+
+static void tilt_downsample(int target, int source) {
+    tilt_begin(target);
+    tilt_quad(tilt_copy, source, 0.0f, 544.0f, 0.0f, 0.0f, 1.0f);
+    vita2d_end_drawing();
+}
+
+/* Four bilinear taps on the source's texel corners: a 3x3 tent. Each tap
+ * blends 1/n over the previous ones, so all four weigh the same. */
+static void tilt_soften(int target, int source) {
+    float du = 0.5f / tilt_sizes[source][0], dv = 0.5f / tilt_sizes[source][1];
+    tilt_begin(target);
+    tilt_quad(tilt_copy, source, 0.0f, 544.0f, -du, -dv, 1.0f);
+    tilt_quad(tilt_mix, source, 0.0f, 544.0f, du, -dv, 1.0f / 2.0f);
+    tilt_quad(tilt_mix, source, 0.0f, 544.0f, -du, dv, 1.0f / 3.0f);
+    tilt_quad(tilt_mix, source, 0.0f, 544.0f, du, dv, 1.0f / 4.0f);
+    vita2d_end_drawing();
+}
+
+/* Blur amount: 1 at the top and bottom screen edges, 0 inside the focus band. */
+static float tilt_amount(float y, float top, float bottom) {
+    float amount = 0.0f;
+    if (top > 0.0f && y < top) amount = (top - y) / top;
+    if (bottom < 1.0f && y > bottom) {
+        float below = (y - bottom) / (1.0f - bottom);
+        if (below > amount) amount = below;
+    }
+    return amount;
+}
+
+/* Writes destination alpha over [r0, r1] of the screen: the weight of one
+ * blur level, ramping in over [from, to] of the blur amount. */
+static void tilt_ramp(float r0, float r1, float top, float bottom, float strength, float from, float to) {
+    enum { SEGMENTS = 16 };
+    vita2d_color_vertex *v = vita2d_pool_memalign(SEGMENTS * 6 * sizeof(*v), 8);
+    if (!v) return;
+    for (int s = 0; s < SEGMENTS; s++) {
+        float ya = r0 + (r1 - r0) * s / SEGMENTS, yb = r0 + (r1 - r0) * (s + 1) / SEGMENTS;
+        float wa = (tilt_amount(ya, top, bottom) * strength - from) / (to - from);
+        float wb = (tilt_amount(yb, top, bottom) * strength - from) / (to - from);
+        wa = wa < 0.0f ? 0.0f : (wa > 1.0f ? 1.0f : wa);
+        wb = wb < 0.0f ? 0.0f : (wb > 1.0f ? 1.0f : wb);
+        uint32_t ca = ((uint32_t)(wa * 255.0f + 0.5f) << 24) | 0xffffffu;
+        uint32_t cb = ((uint32_t)(wb * 255.0f + 0.5f) << 24) | 0xffffffu;
+        const float xs[6] = {0.0f, 960.0f, 960.0f, 0.0f, 960.0f, 0.0f};
+        const float ys[6] = {ya, ya, yb, ya, yb, yb};
+        for (int i = 0; i < 6; i++) {
+            vita2d_color_vertex *p = &v[s * 6 + i];
+            p->x = xs[i]; p->y = ys[i] * 544.0f; p->z = 0.5f;
+            p->color = ys[i] == ya ? ca : cb;
+        }
+    }
+    SceGxmContext *ctx = vita2d_get_context();
+    sceGxmSetVertexProgram(ctx, _vita2d_colorVertexProgram);
+    sceGxmSetFragmentProgram(ctx, tilt_alpha);
+    void *uniforms;
+    sceGxmReserveVertexDefaultUniformBuffer(ctx, &uniforms);
+    sceGxmSetUniformDataF(uniforms, _vita2d_colorWvpParam, 0, 16, tilt_ortho);
+    sceGxmSetVertexStream(ctx, 0, v);
+    sceGxmDraw(ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, vita2d_get_linear_indices(), SEGMENTS * 6);
+    stat_draws++;
+}
+
+int vita_gxm_begin_offscreen(uint32_t color) {
+    static int skip_logged;
+    if (initialized && (drawing || target_drawing) && !skip_logged) {
+        skip_logged = 1;
+        fprintf(stderr, "[gxm3d] tilt-shift skipped: frame already begun before the 3D pass\n");
+        fflush(stderr);
+    }
+    if (!initialized || drawing || target_drawing || !scene3d_enabled || !tilt_ready()) return 0;
+    if ((memory_frame++ % 600) == 0) log_free_memory("frame");
+    wait_gpu();
+    vita2d_start_drawing_advanced(tilt_targets[TILT_FULL],
+            SCE_GXM_SCENE_FRAGMENT_SET_DEPENDENCY | (target_dependency ? SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY : 0));
+    target_dependency = 0;
+    vita2d_disable_clipping();
+    clip_enabled_cache = 0;
+    vita2d_set_clear_color(color);
+    SceGxmContext *ctx = vita2d_get_context();
+    sceGxmSetViewport(ctx, 480.0f, 480.0f, 272.0f, -272.0f, 0.5f, 0.5f);
+    sceGxmSetFrontDepthFunc(ctx, SCE_GXM_DEPTH_FUNC_ALWAYS);
+    sceGxmSetBackDepthFunc(ctx, SCE_GXM_DEPTH_FUNC_ALWAYS);
+    sceGxmSetFrontDepthWriteEnable(ctx, SCE_GXM_DEPTH_WRITE_ENABLED);
+    sceGxmSetBackDepthWriteEnable(ctx, SCE_GXM_DEPTH_WRITE_ENABLED);
+    vita2d_clear_screen();
+    sceGxmSetFrontDepthWriteEnable(ctx, SCE_GXM_DEPTH_WRITE_DISABLED);
+    sceGxmSetBackDepthWriteEnable(ctx, SCE_GXM_DEPTH_WRITE_DISABLED);
+    drawing = 1;
+    tilt_offscreen = 1;
+    return 1;
+}
+
+void vita_gxm_tiltshift_resolve(float top, float bottom, float strength) {
+    if (!tilt_offscreen) return;
+    tilt_offscreen = 0;
+    flush_batch();
+    vita_gxm_scene3d_end();
+    vita2d_disable_clipping();
+    clip_enabled_cache = 0;
+    vita2d_end_drawing();
+    top = top < 0.0f ? 0.0f : (top > 1.0f ? 1.0f : top);
+    bottom = bottom < top ? top : (bottom > 1.0f ? 1.0f : bottom);
+    int blur = strength > 0.0f && (top > 0.0f || bottom < 1.0f);
+    if (blur) {
+        tilt_downsample(TILT_HALF, TILT_FULL);
+        tilt_downsample(TILT_QUARTER, TILT_HALF);
+        tilt_soften(TILT_QUARTER_SOFT, TILT_QUARTER);
+        tilt_downsample(TILT_EIGHTH, TILT_QUARTER_SOFT);
+        tilt_soften(TILT_EIGHTH_SOFT, TILT_EIGHTH);
+    }
+    vita2d_start_drawing_advanced(NULL, SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY);
+    tilt_states(vita2d_get_context(), 960, 544);
+    tilt_quad(tilt_copy, TILT_FULL, 0.0f, 544.0f, 0.0f, 0.0f, 1.0f);
+    if (blur) {
+        const int levels[2] = {TILT_QUARTER_SOFT, TILT_EIGHTH_SOFT};
+        const float from[2] = {0.0f, 0.4f}, to[2] = {0.5f, 1.0f};
+        for (int level = 0; level < 2; level++) {
+            if (top > 0.0f) tilt_ramp(0.0f, top, top, bottom, strength, from[level], to[level]);
+            if (bottom < 1.0f) tilt_ramp(bottom, 1.0f, top, bottom, strength, from[level], to[level]);
+            if (top > 0.0f) tilt_quad(tilt_dst_mix, levels[level], 0.0f, top * 544.0f, 0.0f, 0.0f, 1.0f);
+            if (bottom < 1.0f) tilt_quad(tilt_dst_mix, levels[level], bottom * 544.0f, 544.0f, 0.0f, 0.0f, 1.0f);
+        }
+    }
 }
