@@ -14,12 +14,14 @@
 <div align="center">
   <a href="https://github.com/WolffsRoom/godot4-psvita/releases/latest"><img src="https://img.shields.io/github/v/release/WolffsRoom/godot4-psvita?style=for-the-badge&label=RELEASE&color=377bb5" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/GODOT-4.8--dev7-478cbf?style=for-the-badge&logo=godotengine&logoColor=white" alt="Godot 4.8-dev7">
+	<a href="https://github.com/WolffsRoom/godot4-psvita/releases"><img src="https://img.shields.io/github/downloads/WolffsRoom/godot4-psvita/total?style=for-the-badge&color=blue&logo=github" alt="Downloads"></a>
   <img src="https://img.shields.io/badge/2D-NATIVE%20GXM-4caf50?style=for-the-badge" alt="Native GXM 2D">
   <img src="https://img.shields.io/badge/3D-EXPERIMENTAL-ffc107?style=for-the-badge" alt="Experimental 3D">
 </div>
 <br>
 <div align="center">
   <i>If you enjoy my work, consider supporting the development!</i>
+	<br>
   <br
   <a href="https://www.buymeacoffee.com/5rsrt7j4z8f">
     <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48">
@@ -27,9 +29,6 @@
 </div>
 
 ---
-
-
-<h2 align="center">Table of Contents</h2>
 
 <details open>
 <summary><b>Overview and Features</b></summary>
@@ -72,27 +71,6 @@
 
 </details>
 
-
----
-
-<a id="default-game-loading-screen"></a>
-<h2 align="center"><img src="docs/images/headings/light/default-game-loading-screen.png#gh-light-mode-only" alt="Default game loading screen" width="900"><img src="docs/images/headings/dark/default-game-loading-screen.png#gh-dark-mode-only" alt="Default game loading screen" width="900"></h2>
-
-Every game exported with this engine opens with the same native loading animation. After the LiveArea `pic0`, the Vita loader shows this 960 × 544 animation **while `libgodot.so` is being loaded and relocated**, before the engine itself exists. It replaces the black screen that used to last several seconds.
-
-<p align="center">
-  <img src="docs/images/godot_vita_loading.gif" alt="Godot 4 Vita loading animation" width="720">
-</p>
-
-How it works:
-
-- The animation is adapted from Godot's official `custom_splash_screen` demo (MIT). It was rendered offline into a **DVAN** sequence: 180 PNG frames, 30 FPS, six seconds (`platform/vita/loader/boot_assets/custom_splash_960x544.dat`, packaged as `app0:boot_anim.dat`).
-- The loader does not run GDScript or Godot resources at that point, so the animation is drawn by plain C code straight to a CPU framebuffer with `sceDisplaySetFrameBuf`, without `vita2d_init`.
-- **Two decoder threads** (cores 1 and 2) decode PNG frames into a ring of four CDRAM buffers, while core 0 keeps loading the engine. A presenter shows frames strictly in order at up to 30 FPS (one decoder used to reach only ~15–20 FPS).
-- The first cycle always completes. When the engine is ready, the display is blanked, the buffers are released and Godot's GXM renderer takes over.
-- Godot's own project boot splash (`application/boot_splash`) is then drawn by the GXM renderer while scripts and the main scene load, instead of a black screen.
-- The canonical animation is part of the export template; game-specific animations are refused by the template builder. Diagnostic builds can disable it with `-DVITA_BOOT_ANIMATION:FILEPATH=OFF`.
-
 ---
 
 <a id="what-this-project-is"></a>
@@ -105,24 +83,6 @@ Godot 4 does not run on the PS Vita out of the box: the Vita has a 444 MHz quad-
 | **Runtime** (`platform/vita`) | Godot 4.8-dev7 compiled for ARM as a position-independent `libgodot.so`, with a Vita OS layer, native GXM 2D/3D renderers, audio, input and file access. |
 | **Loader** (`platform/vita/loader`) | A small Vita `eboot.bin` that maps, relocates and starts `libgodot.so`, resolves its imports against the Vita SDK, shows the loading animation and manages CapUnlocker, logs and data paths. |
 | **Windows editor** (`modules/vita_editor` + `platform/vita/editor`) | A Godot 4.8-dev7 Windows editor build in which **PS Vita is a built-in export platform**. It turns any compatible project into an installable VPK, with LiveArea, trophies and a separate data folder. |
-
----
-
-<a id="whats-new-in-v02"></a>
-<h2 align="center"><img src="docs/images/headings/light/whats-new-in-v02.png#gh-light-mode-only" alt="What's new in v0.2" width="900"><img src="docs/images/headings/dark/whats-new-in-v02.png#gh-dark-mode-only" alt="What's new in v0.2" width="900"></h2>
-
-Version 0.2 turns the first editor/runtime proof of concept into a more practical PS Vita development package:
-
-- **Portable Windows editor:** the release includes the complete zipped editor, with the PS Vita export platform and templates ready to use.
-- **PCK-first exports:** projects are exported as a single `game.pck` by default. Developers can still choose loose files under `game_data` when that layout is useful for testing or patching.
-- **Built-in Vita export workflow:** VPK creation, separate `ux0:data/<game>/` folders, CapUnlocker configuration, RGBA4444/RGBA8888 textures and LiveArea previews are available from the Godot export dialog.
-- **Improved native GXM 3D:** repaired `AnimatedSprite3D` frame updates, Sprite3D tint/modulation, transparent-surface ordering, native 3D followed by a sharp 2D canvas pass, light flares, decals, distance culling and an optional tilt-shift resolve.
-- **Improved native GXM 2D:** batching, NinePatch, polygons, bitmap/atlas fonts, SubViewport render targets, clipping and front-touch input are exercised by real projects.
-- **Standard Godot4Vita presentation:** exported VPKs use the Godot icon and the default Godot4Vita LiveArea unless a project supplies its own assets.
-- **v0.2 showcase:** a demonstration VPK combines a controllable rigged 3D character, orbit/zoom camera, jump and roll animations, lighting/effects and a layered 2D preview. Press **Select** for 2D and **Start** for 3D.
-- **More real-game validation:** the gallery below now includes 2D and 3D projects running on the engine, including Lantern Crossing by jeeve-javari.
-
-The 3D renderer is still experimental. Compatibility and performance must be validated on real PS Vita hardware for each project.
 
 ---
 
@@ -197,6 +157,27 @@ The LiveArea is the Vita home screen page of a game. Its layout is defined by `s
 - The exporter writes a `template.xml` matching the selected style, with the background and startup images, and validates that game styles are used for games.
 - Previews come from PSDevWiki (GFDL 1.2, see `previews/ATTRIBUTION.md`) and are shipped with the editor.
 - Icon, background and startup images must be **8-bit indexed PNG** (palette PNG, not RGB/RGBA) with exactly the sizes of the default files: `icon0.png` 128 × 128, `bg0.png` 840 × 500 and `startup.png` 280 × 158. Use the bundled defaults in `vita/defaults/` as the format reference; the exporter rejects images that do not match.
+
+---
+
+
+<a id="default-game-loading-screen"></a>
+<h2 align="center"><img src="docs/images/headings/light/default-game-loading-screen.png#gh-light-mode-only" alt="Default game loading screen" width="900"><img src="docs/images/headings/dark/default-game-loading-screen.png#gh-dark-mode-only" alt="Default game loading screen" width="900"></h2>
+
+Every game exported with this engine opens with the same native loading animation. After the LiveArea `pic0`, the Vita loader shows this 960 × 544 animation **while `libgodot.so` is being loaded and relocated**, before the engine itself exists. It replaces the black screen that used to last several seconds.
+
+<p align="center">
+  <img src="docs/images/godot_vita_loading.gif" alt="Godot 4 Vita loading animation" width="720">
+</p>
+
+How it works:
+
+- The animation is adapted from Godot's official `custom_splash_screen` demo (MIT). It was rendered offline into a **DVAN** sequence: 180 PNG frames, 30 FPS, six seconds (`platform/vita/loader/boot_assets/custom_splash_960x544.dat`, packaged as `app0:boot_anim.dat`).
+- The loader does not run GDScript or Godot resources at that point, so the animation is drawn by plain C code straight to a CPU framebuffer with `sceDisplaySetFrameBuf`, without `vita2d_init`.
+- **Two decoder threads** (cores 1 and 2) decode PNG frames into a ring of four CDRAM buffers, while core 0 keeps loading the engine. A presenter shows frames strictly in order at up to 30 FPS (one decoder used to reach only ~15–20 FPS).
+- The first cycle always completes. When the engine is ready, the display is blanked, the buffers are released and Godot's GXM renderer takes over.
+- Godot's own project boot splash (`application/boot_splash`) is then drawn by the GXM renderer while scripts and the main scene load, instead of a black screen.
+- The canonical animation is part of the export template; game-specific animations are refused by the template builder. Diagnostic builds can disable it with `-DVITA_BOOT_ANIMATION:FILEPATH=OFF`.
 
 ---
 
@@ -443,17 +424,23 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 ---
 
 <a id="contributors"></a>
-<h2 align="center"><a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors"><img src="docs/images/headings/light/contributors.png#gh-light-mode-only" alt="Contributors" width="900"><img src="docs/images/headings/dark/contributors.png#gh-dark-mode-only" alt="Contributors" width="900"></a></h2>
-
-<p align="center">People who have contributed code and project improvements to Godot4Vita.</p>
-
 <p align="center">
+  <a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors">
+    <picture>
+      <source media="(prefers-color-scheme: lgiht)" srcset="docs/images/headings/dark/contributors.png">
+      <img src="docs/images/headings/light/contributors.png" alt="Contributors" width="720">
+    </picture>
+  </a>
+  <br>
+  <sub>People who have contributed code and project improvements to Godot4Vita.</sub>
+	<br>
+  <br>
   <a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors">
     <img src="https://contrib.rocks/image?repo=WolffsRoom/godot4-psvita" alt="Godot4Vita contributors">
   </a>
+  <br>
+  <sub><a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors">View all contributors</a></sub>
 </p>
-
-<p align="center"><a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors">View all contributors</a></p>
 
 ---
 
