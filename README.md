@@ -76,7 +76,7 @@
 ---
 
 <a id="default-game-loading-screen"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/default-game-loading-screen.png"><img src="docs/images/headings/light/default-game-loading-screen.png" alt="Default game loading screen" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/default-game-loading-screen.png#gh-light-mode-only" alt="Default game loading screen" width="900"><img src="docs/images/headings/dark/default-game-loading-screen.png#gh-dark-mode-only" alt="Default game loading screen" width="900"></h2>
 
 Every game exported with this engine opens with the same native loading animation. After the LiveArea `pic0`, the Vita loader shows this 960 × 544 animation **while `libgodot.so` is being loaded and relocated**, before the engine itself exists. It replaces the black screen that used to last several seconds.
 
@@ -96,7 +96,7 @@ How it works:
 ---
 
 <a id="what-this-project-is"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/what-this-project-is.png"><img src="docs/images/headings/light/what-this-project-is.png" alt="What this project is" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/what-this-project-is.png#gh-light-mode-only" alt="What this project is" width="900"><img src="docs/images/headings/dark/what-this-project-is.png#gh-dark-mode-only" alt="What this project is" width="900"></h2>
 
 Godot 4 does not run on the PS Vita out of the box: the Vita has a 444 MHz quad-core ARM Cortex-A9, an SGX543 GPU driven through Sony's **GXM** API, 512 MB of RAM and no Vulkan or desktop OpenGL. This port has three parts:
 
@@ -109,7 +109,7 @@ Godot 4 does not run on the PS Vita out of the box: the Vita has a 444 MHz quad-
 ---
 
 <a id="whats-new-in-v02"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/whats-new-in-v02.png"><img src="docs/images/headings/light/whats-new-in-v02.png" alt="What's new in v0.2" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/whats-new-in-v02.png#gh-light-mode-only" alt="What's new in v0.2" width="900"><img src="docs/images/headings/dark/whats-new-in-v02.png#gh-dark-mode-only" alt="What's new in v0.2" width="900"></h2>
 
 Version 0.2 turns the first editor/runtime proof of concept into a more practical PS Vita development package:
 
@@ -127,7 +127,7 @@ The 3D renderer is still experimental. Compatibility and performance must be val
 ---
 
 <a id="windows-editor-with-ps-vita-export"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/windows-editor-with-ps-vita-export.png"><img src="docs/images/headings/light/windows-editor-with-ps-vita-export.png" alt="Windows editor with PS Vita export" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/windows-editor-with-ps-vita-export.png#gh-light-mode-only" alt="Windows editor with PS Vita export" width="900"><img src="docs/images/headings/dark/windows-editor-with-ps-vita-export.png#gh-dark-mode-only" alt="Windows editor with PS Vita export" width="900"></h2>
 
 The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appears in **Project > Export > Add…** for every project, without installing an addon, Python, WSL or VitaSDK.
 
@@ -136,7 +136,7 @@ The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appea
 </p>
 
 <a id="how-the-export-platform-was-integrated"></a>
-<h3 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/how-the-export-platform-was-integrated.png"><img src="docs/images/headings/light/how-the-export-platform-was-integrated.png" alt="How the export platform was integrated" width="720"></picture></h3>
+<h3 align="center"><img src="docs/images/headings/light/how-the-export-platform-was-integrated.png#gh-light-mode-only" alt="How the export platform was integrated" width="720"><img src="docs/images/headings/dark/how-the-export-platform-was-integrated.png#gh-dark-mode-only" alt="How the export platform was integrated" width="720"></h3>
 
 - **`modules/vita_editor`** is a small engine module compiled only into the Windows editor. At editor startup it registers a native `EditorPlugin` that loads three scripts from the `vita/` folder beside the executable: the export platform (`platform.gd`, an `EditorExportPlatformExtension`), an inspector plugin (`defaults_inspector.gd`) and the trophy panel (`trophy_panel.gd`). Keeping the logic in scripts beside the exe lets the export pipeline be updated without recompiling the editor.
 - The same scripts also work as a classic addon (`addons/psvita`) for the official 4.8-dev7 editor. When the native plugin is present, the addon detects it and does not register a second platform.
@@ -145,7 +145,7 @@ The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appea
 - `PARAM.SFO`, the LiveArea XML and the VPK are generated in GDScript, with no external tools. Export is always Release; **Export With Debug** is accepted but produces a Release package.
 
 <a id="export-options"></a>
-<h3 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/export-options.png"><img src="docs/images/headings/light/export-options.png" alt="Export options" width="720"></picture></h3>
+<h3 align="center"><img src="docs/images/headings/light/export-options.png#gh-light-mode-only" alt="Export options" width="720"><img src="docs/images/headings/dark/export-options.png#gh-dark-mode-only" alt="Export options" width="720"></h3>
 
 | Option | Effect |
 |---|---|
@@ -161,7 +161,7 @@ The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appea
 </p>
 
 <a id="projects-opened-in-the-editor"></a>
-<h3 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/projects-opened-in-the-editor.png"><img src="docs/images/headings/light/projects-opened-in-the-editor.png" alt="Projects opened in the editor" width="720"></picture></h3>
+<h3 align="center"><img src="docs/images/headings/light/projects-opened-in-the-editor.png#gh-light-mode-only" alt="Projects opened in the editor" width="720"><img src="docs/images/headings/dark/projects-opened-in-the-editor.png#gh-dark-mode-only" alt="Projects opened in the editor" width="720"></h3>
 
 The same editor opens and exports the ported games. These projects were adapted for the Vita runtime (960 × 544 viewport, Compatibility renderer, PS Vita preset) and open normally on the PC:
 
@@ -179,14 +179,14 @@ The same editor opens and exports the ported games. These projects were adapted 
 </p>
 
 <a id="example-export"></a>
-<h3 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/example-export.png"><img src="docs/images/headings/light/example-export.png" alt="Example export" width="720"></picture></h3>
+<h3 align="center"><img src="docs/images/headings/light/example-export.png#gh-light-mode-only" alt="Example export" width="720"><img src="docs/images/headings/dark/example-export.png#gh-dark-mode-only" alt="Example export" width="720"></h3>
 
 [`examples/vita_export`](examples/vita_export) contains a minimal project, the `Exemplo.vpk` exported from it and its `ux0:data/exemplovita` data folder. Use it as a reference for the expected VPK and data layout, or install it to check that a Vita is ready for this runtime.
 
 ---
 
 <a id="livearea-template-selection-with-previews"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/livearea-template-selection-with-previews.png"><img src="docs/images/headings/light/livearea-template-selection-with-previews.png" alt="LiveArea template selection with previews" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/livearea-template-selection-with-previews.png#gh-light-mode-only" alt="LiveArea template selection with previews" width="900"><img src="docs/images/headings/dark/livearea-template-selection-with-previews.png#gh-dark-mode-only" alt="LiveArea template selection with previews" width="900"></h2>
 
 The LiveArea is the Vita home screen page of a game. Its layout is defined by `sce_sys/livearea/contents/template.xml`. The export preset exposes the **LiveArea > Style** list (`a1`–`a5` for games, plus the other system layouts for reference) and **Show template previews**, a horizontally scrolling strip with a picture of each layout, so the right `template.xml` can be chosen without guessing.
 
@@ -201,7 +201,7 @@ The LiveArea is the Vita home screen page of a game. Its layout is defined by `s
 ---
 
 <a id="ps-vita-trophies-in-development"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/ps-vita-trophies-in-development.png"><img src="docs/images/headings/light/ps-vita-trophies-in-development.png" alt="PS Vita trophies - in development" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/ps-vita-trophies-in-development.png#gh-light-mode-only" alt="PS Vita trophies - in development" width="900"><img src="docs/images/headings/dark/ps-vita-trophies-in-development.png#gh-dark-mode-only" alt="PS Vita trophies - in development" width="900"></h2>
 
 A **PS Vita Trophies** tab is added to the editor's bottom panel. It builds a real trophy package for the VPK.
 
@@ -222,7 +222,7 @@ A **PS Vita Trophies** tab is added to the editor's bottom panel. It builds a re
 ---
 
 <a id="runtime-architecture"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/runtime-architecture.png"><img src="docs/images/headings/light/runtime-architecture.png" alt="Runtime architecture" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/runtime-architecture.png#gh-light-mode-only" alt="Runtime architecture" width="900"><img src="docs/images/headings/dark/runtime-architecture.png#gh-dark-mode-only" alt="Runtime architecture" width="900"></h2>
 
 ```
 eboot.bin (loader, C)                      libgodot.so (Godot 4.8-dev7, C++)
@@ -242,7 +242,7 @@ eboot.bin (loader, C)                      libgodot.so (Godot 4.8-dev7, C++)
 ---
 
 <a id="native-gxm-2d-renderer"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/native-gxm-2d-renderer.png"><img src="docs/images/headings/light/native-gxm-2d-renderer.png" alt="Native GXM 2D renderer" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/native-gxm-2d-renderer.png#gh-light-mode-only" alt="Native GXM 2D renderer" width="900"><img src="docs/images/headings/dark/native-gxm-2d-renderer.png#gh-dark-mode-only" alt="Native GXM 2D renderer" width="900"></h2>
 
 Godot's Compatibility renderer relies on GLES3 shaders that the Vita's shader compiler cannot handle reliably. Instead, `rasterizer_gxm_vita.cpp` + `gxm_canvas_vita.inc` translate Godot **CanvasItem** commands directly into GXM draws through a pinned [libvita2d](https://github.com/xerpi/libvita2d) context. No GLES shaders are used for 2D.
 
@@ -263,7 +263,7 @@ Validated on hardware with [Dodge the Creeps](https://github.com/WolffsRoom/Dodg
 ---
 
 <a id="experimental-gxm-3d-renderer"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/experimental-gxm-3d-renderer.png"><img src="docs/images/headings/light/experimental-gxm-3d-renderer.png" alt="Experimental GXM 3D renderer" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/experimental-gxm-3d-renderer.png#gh-light-mode-only" alt="Experimental GXM 3D renderer" width="900"><img src="docs/images/headings/dark/experimental-gxm-3d-renderer.png#gh-dark-mode-only" alt="Experimental GXM 3D renderer" width="900"></h2>
 
 `rasterizer_scene_gxm_vita.inc` (built into `libgodot_gxm3d.so`, enabled at run time by `gxm3d.cfg`) draws Godot **MeshInstance3D** scenes with GXM, sharing the 2D canvas for UI. It is used by the Overburden port and by the Buckshot Roulette validation.
 
@@ -277,7 +277,7 @@ Not available yet: real-time shadow maps, fog, screen-space effects, custom spat
 ---
 
 <a id="audio-input-memory-and-data-loading"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/audio-input-memory-and-data-loading.png"><img src="docs/images/headings/light/audio-input-memory-and-data-loading.png" alt="Audio, input, memory and data loading" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/audio-input-memory-and-data-loading.png#gh-light-mode-only" alt="Audio, input, memory and data loading" width="900"><img src="docs/images/headings/dark/audio-input-memory-and-data-loading.png#gh-dark-mode-only" alt="Audio, input, memory and data loading" width="900"></h2>
 
 - **Audio:** Godot's AudioServer mixes as usual; the Vita driver sends PCM16 to SceAudio. The default `audio/vita/output_mode="godot3"` reproduces the layout of the Godot 3 Vita driver that plays without distortion on hardware (BGM port, project mix rate, 512-frame blocks). `main48` keeps the earlier 48 kHz / 2048-frame layout. See [AUDIO_BACKEND.md](platform/vita/AUDIO_BACKEND.md).
 - **Input:** D-pad, both analog sticks, face buttons, shoulders, START/SELECT as Godot joypad 0, plus **front touch screen** events.
@@ -286,7 +286,7 @@ Not available yet: real-time shadow maps, fog, screen-space effects, custom spat
 ---
 
 <a id="games-running-on-this-engine"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/games-running-on-this-engine.png"><img src="docs/images/headings/light/games-running-on-this-engine.png" alt="Games running on this engine" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/games-running-on-this-engine.png#gh-light-mode-only" alt="Games running on this engine" width="900"><img src="docs/images/headings/dark/games-running-on-this-engine.png#gh-dark-mode-only" alt="Games running on this engine" width="900"></h2>
 
 The clips below were recorded directly from the local Godot project builds. They show the projects running on the desktop editor/runtime, not Vita emulation; hardware status is described under each game.
 
@@ -295,72 +295,119 @@ The clips below were recorded directly from the local Godot project builds. They
 </p>
 
 <a id="dodge-the-creeps"></a>
-<h3 align="center"><a href="https://github.com/WolffsRoom/DodgeTheCreeps-PSVita"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/dodge-the-creeps.png"><img src="docs/images/headings/light/dodge-the-creeps.png" alt="Dodge the Creeps" width="600"></picture></a></h3>
+<h3 align="center"><a href="https://github.com/WolffsRoom/DodgeTheCreeps-PSVita"><img src="docs/images/headings/light/dodge-the-creeps.png#gh-light-mode-only" alt="Dodge the Creeps" width="600"><img src="docs/images/headings/dark/dodge-the-creeps.png#gh-dark-mode-only" alt="Dodge the Creeps" width="600"></a></h3>
+
+<p align="center"><a href="https://github.com/WolffsRoom/DodgeTheCreeps-PSVita"><b>Project repository</b></a></p>
+
+<details>
+<summary>Gameplay preview</summary>
 
 <p align="center">
   <img src="docs/images/games/dodge-the-creeps.gif" alt="Dodge the Creeps running on Godot4Vita" width="640">
 </p>
 
-**2D — Godot's official demo.** The first game on the engine. Gameplay, collisions, HUD, audio and controls are confirmed on a physical Vita.
+</details>
+
+**2D - Godot's official demo.** The first game on the engine. Gameplay, collisions, HUD, audio and controls are confirmed on a physical Vita.
 
 <a id="ambidextro"></a>
-<h3 align="center"><a href="https://github.com/WolffsRoom/Ambidextro-Vita"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/ambidextro.png"><img src="docs/images/headings/light/ambidextro.png" alt="Ambidextro" width="600"></picture></a></h3>
+<h3 align="center"><a href="https://github.com/WolffsRoom/Ambidextro-Vita"><img src="docs/images/headings/light/ambidextro.png#gh-light-mode-only" alt="Ambidextro" width="600"><img src="docs/images/headings/dark/ambidextro.png#gh-dark-mode-only" alt="Ambidextro" width="600"></a></h3>
+
+<p align="center"><a href="https://github.com/WolffsRoom/Ambidextro-Vita"><b>Project repository</b></a></p>
+
+<details>
+<summary>Gameplay preview</summary>
 
 <p align="center">
   <img src="docs/images/games/ambidextro.gif" alt="Ambidextro running on Godot4Vita" width="640">
 </p>
 
+</details>
+
 **2D commercial game.** Beta release; playable on hardware with the native GXM 2D renderer.
 
 <a id="deltarune-lightners-live-plus"></a>
-<h3 align="center"><a href="https://github.com/WolffsRoom/DeltaruneLightnersVita"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/deltarune-lightners-live-plus.png"><img src="docs/images/headings/light/deltarune-lightners-live-plus.png" alt="Deltarune Lightners Live Plus" width="600"></picture></a></h3>
+<h3 align="center"><a href="https://github.com/WolffsRoom/DeltaruneLightnersVita"><img src="docs/images/headings/light/deltarune-lightners-live-plus.png#gh-light-mode-only" alt="Deltarune Lightners Live Plus" width="600"><img src="docs/images/headings/dark/deltarune-lightners-live-plus.png#gh-dark-mode-only" alt="Deltarune Lightners Live Plus" width="600"></a></h3>
+
+<p align="center"><a href="https://github.com/WolffsRoom/DeltaruneLightnersVita"><b>Project repository</b></a></p>
+
+<details>
+<summary>Gameplay preview</summary>
 
 <p align="center">
   <img src="docs/images/games/deltarune-lightners-live-plus.gif" alt="Deltarune Lightners Live Plus running on Godot4Vita" width="640">
 </p>
 
+</details>
+
 **2D fan game.** Playable on hardware; v1.0 is available and runs at 60 FPS.
 
 <a id="tenebrarium"></a>
-<h3 align="center"><a href="https://github.com/WolffsRoom/TenebrariumVita"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/tenebrarium.png"><img src="docs/images/headings/light/tenebrarium.png" alt="Tenebrarium" width="600"></picture></a></h3>
+<h3 align="center"><a href="https://github.com/WolffsRoom/TenebrariumVita"><img src="docs/images/headings/light/tenebrarium.png#gh-light-mode-only" alt="Tenebrarium" width="600"><img src="docs/images/headings/dark/tenebrarium.png#gh-dark-mode-only" alt="Tenebrarium" width="600"></a></h3>
+
+<p align="center"><a href="https://github.com/WolffsRoom/TenebrariumVita"><b>Project repository</b></a></p>
+
+<details>
+<summary>Gameplay preview</summary>
 
 <p align="center">
   <img src="docs/images/games/tenebrarium.gif" alt="Tenebrarium running on Godot4Vita" width="640">
 </p>
 
+</details>
+
 **2D.** Alpha running on hardware. The port drove NinePatch, polygon, SubViewport, batching and touch support in the native renderer.
 
 <a id="overburden"></a>
-<h3 align="center"><a href="https://github.com/WolffsRoom/OVERBURDEN-Vita"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/overburden.png"><img src="docs/images/headings/light/overburden.png" alt="OVERBURDEN" width="600"></picture></a></h3>
+<h3 align="center"><a href="https://github.com/WolffsRoom/OVERBURDEN-Vita"><img src="docs/images/headings/light/overburden.png#gh-light-mode-only" alt="OVERBURDEN" width="600"><img src="docs/images/headings/dark/overburden.png#gh-dark-mode-only" alt="OVERBURDEN" width="600"></a></h3>
+
+<p align="center"><a href="https://github.com/WolffsRoom/OVERBURDEN-Vita"><b>Project repository</b></a></p>
+
+<details>
+<summary>Gameplay preview</summary>
 
 <p align="center">
   <img src="docs/images/games/overburden.gif" alt="OVERBURDEN running on Godot4Vita" width="640">
 </p>
 
+</details>
+
 **First 3D game.** The full game is playable on hardware at approximately 30 FPS with the experimental GXM 3D renderer.
 
 <a id="buckshot-roulette"></a>
-<h3 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/buckshot-roulette.png"><img src="docs/images/headings/light/buckshot-roulette.png" alt="Buckshot Roulette" width="600"></picture></h3>
+<h3 align="center"><img src="docs/images/headings/light/buckshot-roulette.png#gh-light-mode-only" alt="Buckshot Roulette" width="600"><img src="docs/images/headings/dark/buckshot-roulette.png#gh-dark-mode-only" alt="Buckshot Roulette" width="600"></h3>
+
+<details>
+<summary>Gameplay preview</summary>
 
 <p align="center">
   <img src="docs/images/games/buckshot-roulette.gif" alt="Buckshot Roulette running on Godot4Vita" width="640">
 </p>
 
+</details>
+
 **3D validation project.** It boots and its main menu and options work. Gameplay does not start yet because of the complexity of its 3D scene.
 
 <a id="lantern-crossing"></a>
-<h3 align="center"><a href="https://github.com/jeeve-javari/lantern-crossing-vita"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/lantern-crossing.png"><img src="docs/images/headings/light/lantern-crossing.png" alt="Lantern Crossing" width="600"></picture></a></h3>
+<h3 align="center"><a href="https://github.com/jeeve-javari/lantern-crossing-vita"><img src="docs/images/headings/light/lantern-crossing.png#gh-light-mode-only" alt="Lantern Crossing" width="600"><img src="docs/images/headings/dark/lantern-crossing.png#gh-dark-mode-only" alt="Lantern Crossing" width="600"></a></h3>
+
+<p align="center"><a href="https://github.com/jeeve-javari/lantern-crossing-vita"><b>Project repository</b></a></p>
+
+<details>
+<summary>Gameplay preview</summary>
 
 <p align="center">
   <img src="docs/images/games/lantern-crossing.gif" alt="Lantern Crossing running on Godot4Vita" width="640">
 </p>
+
+</details>
 
 **3D.** A PS Vita port by [jeeve-javari](https://github.com/jeeve-javari), using the experimental GXM 3D renderer and Vita-specific scene adaptations.
 
 ---
 
 <a id="download-and-quick-start"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/download-and-quick-start.png"><img src="docs/images/headings/light/download-and-quick-start.png" alt="Download and quick start" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/download-and-quick-start.png#gh-light-mode-only" alt="Download and quick start" width="900"><img src="docs/images/headings/dark/download-and-quick-start.png#gh-dark-mode-only" alt="Download and quick start" width="900"></h2>
 
 1. Download **`Godot4Vita-v0.2-Windows-x64.zip`** from the [latest release](https://github.com/WolffsRoom/godot4-psvita/releases/latest) and extract the whole folder. Keep `vita/` next to `Godot4Vita.exe`.
 2. Open or create a project. In **Project > Export > Add…** choose **PS Vita** and click **Prepare settings for PS Vita**.
@@ -373,7 +420,7 @@ The PS Vita export and trophy panels are currently labelled in Portuguese (for e
 ---
 
 <a id="limitations"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/limitations.png"><img src="docs/images/headings/light/limitations.png" alt="Limitations" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/limitations.png#gh-light-mode-only" alt="Limitations" width="900"><img src="docs/images/headings/dark/limitations.png#gh-dark-mode-only" alt="Limitations" width="900"></h2>
 
 - Canvas 2D is a subset: CanvasItem shaders/materials, CanvasGroup effects, GPU particles and some text modes are not rendered (unsupported materials fall back to unshaded drawing).
 - 3D is experimental (see above); performance and memory must be checked per game.
@@ -385,7 +432,7 @@ The PS Vita export and trophy panels are currently labelled in Portuguese (for e
 ---
 
 <a id="building-from-source"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/building-from-source.png"><img src="docs/images/headings/light/building-from-source.png" alt="Building from source" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/building-from-source.png#gh-light-mode-only" alt="Building from source" width="900"><img src="docs/images/headings/dark/building-from-source.png#gh-dark-mode-only" alt="Building from source" width="900"></h2>
 
 **Requirements:** Linux/WSL, [VitaSDK](https://vitasdk.org), Python 3, SCons, CMake, the patched [VitaGL](https://github.com/Rinnegatamante/vitagl) build described in [platform/vita/vitagl](platform/vita/vitagl/README.md), and MinGW-w64 (POSIX threads) for the Windows editor.
 
@@ -410,7 +457,7 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 ---
 
 <a id="repository-structure"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/repository-structure.png"><img src="docs/images/headings/light/repository-structure.png" alt="Repository structure" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/repository-structure.png#gh-light-mode-only" alt="Repository structure" width="900"><img src="docs/images/headings/dark/repository-structure.png#gh-dark-mode-only" alt="Repository structure" width="900"></h2>
 
 | Path | Purpose |
 |---|---|
@@ -426,33 +473,22 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 ---
 
 <a id="contributors"></a>
-<h2 align="center"><a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/contributors.png"><img src="docs/images/headings/light/contributors.png" alt="Contributors" width="900"></picture></a></h2>
+<h2 align="center"><a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors"><img src="docs/images/headings/light/contributors.png#gh-light-mode-only" alt="Contributors" width="900"><img src="docs/images/headings/dark/contributors.png#gh-dark-mode-only" alt="Contributors" width="900"></a></h2>
 
 <p align="center">People who have contributed code and project improvements to Godot4Vita.</p>
 
-<table align="center">
-  <tr>
-    <td align="center" width="180">
-      <a href="https://github.com/WolffsRoom">
-        <img src="https://avatars.githubusercontent.com/u/286500227?v=4" width="96" alt="WolffsRoom avatar"><br>
-        <sub><b>WolffsRoom</b></sub>
-      </a>
-    </td>
-    <td align="center" width="180">
-      <a href="https://github.com/jeeve-javari">
-        <img src="https://avatars.githubusercontent.com/u/45132975?v=4" width="96" alt="jeeve-javari avatar"><br>
-        <sub><b>jeeve-javari</b></sub>
-      </a>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=WolffsRoom/godot4-psvita" alt="Godot4Vita contributors">
+  </a>
+</p>
 
-<p align="center"><a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors">View the complete contribution graph</a></p>
+<p align="center"><a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors">View all contributors</a></p>
 
 ---
 
 <a id="credits"></a>
-<h2 align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/headings/dark/credits.png"><img src="docs/images/headings/light/credits.png" alt="Credits" width="900"></picture></h2>
+<h2 align="center"><img src="docs/images/headings/light/credits.png#gh-light-mode-only" alt="Credits" width="900"><img src="docs/images/headings/dark/credits.png#gh-dark-mode-only" alt="Credits" width="900"></h2>
 
 - [Godot Engine](https://github.com/godotengine/godot) for upstream engine ([README.godot.md](README.godot.md)); loading animation adapted from the official `custom_splash_screen` demo.
 - [VitaSDK](https://vitasdk.org), [VitaGL](https://github.com/Rinnegatamante/vitagl), [libvita2d](https://github.com/xerpi/libvita2d), [kuBridge](https://github.com/TheOfficialFloW/kuBridge), [NoTrpDrm](https://github.com/Rinnegatamante/NoTrpDrm).
