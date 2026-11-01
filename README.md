@@ -36,6 +36,7 @@
 
 - [Default Game Loading Screen](#default-game-loading-screen)
 - [What This Project Is](#what-this-project-is)
+- [What's New in v0.2](#whats-new-in-v02)
 - [Windows Editor with PS Vita Export](#windows-editor-with-ps-vita-export)
 - [LiveArea Template Selection with Previews](#livearea-template-selection-with-previews)
 - [PS Vita Trophies (In Development)](#ps-vita-trophies-in-development)
@@ -73,7 +74,8 @@
 
 ---
 
-## Default game loading screen
+<a id="default-game-loading-screen"></a>
+## <img src="docs/images/headings/default-game-loading-screen.png" alt="Default game loading screen" width="900">
 
 Every game exported with this engine opens with the same native loading animation. After the LiveArea `pic0`, the Vita loader shows this 960 × 544 animation **while `libgodot.so` is being loaded and relocated**, before the engine itself exists. It replaces the black screen that used to last several seconds.
 
@@ -92,7 +94,8 @@ How it works:
 
 ---
 
-## What this project is
+<a id="what-this-project-is"></a>
+## <img src="docs/images/headings/what-this-project-is.png" alt="What this project is" width="900">
 
 Godot 4 does not run on the PS Vita out of the box: the Vita has a 444 MHz quad-core ARM Cortex-A9, an SGX543 GPU driven through Sony's **GXM** API, 512 MB of RAM and no Vulkan or desktop OpenGL. This port has three parts:
 
@@ -104,7 +107,26 @@ Godot 4 does not run on the PS Vita out of the box: the Vita has a 444 MHz quad-
 
 ---
 
-## Windows editor with PS Vita export
+<a id="whats-new-in-v02"></a>
+## <img src="docs/images/headings/whats-new-in-v02.png" alt="What's new in v0.2" width="900">
+
+Version 0.2 turns the first editor/runtime proof of concept into a more practical PS Vita development package:
+
+- **Portable Windows editor:** the release includes the complete zipped editor, with the PS Vita export platform and templates ready to use.
+- **PCK-first exports:** projects are exported as a single `game.pck` by default. Developers can still choose loose files under `game_data` when that layout is useful for testing or patching.
+- **Built-in Vita export workflow:** VPK creation, separate `ux0:data/<game>/` folders, CapUnlocker configuration, RGBA4444/RGBA8888 textures and LiveArea previews are available from the Godot export dialog.
+- **Improved native GXM 3D:** repaired `AnimatedSprite3D` frame updates, Sprite3D tint/modulation, transparent-surface ordering, native 3D followed by a sharp 2D canvas pass, light flares, decals, distance culling and an optional tilt-shift resolve.
+- **Improved native GXM 2D:** batching, NinePatch, polygons, bitmap/atlas fonts, SubViewport render targets, clipping and front-touch input are exercised by real projects.
+- **Standard Godot4Vita presentation:** exported VPKs use the Godot icon and the default Godot4Vita LiveArea unless a project supplies its own assets.
+- **v0.2 showcase:** a demonstration VPK combines a controllable rigged 3D character, orbit/zoom camera, jump and roll animations, lighting/effects and a layered 2D preview. Press **Select** for 2D and **Start** for 3D.
+- **More real-game validation:** the gallery below now includes 2D and 3D projects running on the engine, including Lantern Crossing by jeeve-javari.
+
+The 3D renderer is still experimental. Compatibility and performance must be validated on real PS Vita hardware for each project.
+
+---
+
+<a id="windows-editor-with-ps-vita-export"></a>
+## <img src="docs/images/headings/windows-editor-with-ps-vita-export.png" alt="Windows editor with PS Vita export" width="900">
 
 The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appears in **Project > Export > Add…** for every project, without installing an addon, Python, WSL or VitaSDK.
 
@@ -112,7 +134,8 @@ The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appea
   <img src="docs/images/export_dialog.png" alt="PS Vita export preset in the Godot editor" width="900">
 </p>
 
-### How the export platform was integrated
+<a id="how-the-export-platform-was-integrated"></a>
+### <img src="docs/images/headings/how-the-export-platform-was-integrated.png" alt="How the export platform was integrated" width="720">
 
 - **`modules/vita_editor`** is a small engine module compiled only into the Windows editor. At editor startup it registers a native `EditorPlugin` that loads three scripts from the `vita/` folder beside the executable: the export platform (`platform.gd`, an `EditorExportPlatformExtension`), an inspector plugin (`defaults_inspector.gd`) and the trophy panel (`trophy_panel.gd`). Keeping the logic in scripts beside the exe lets the export pipeline be updated without recompiling the editor.
 - The same scripts also work as a classic addon (`addons/psvita`) for the official 4.8-dev7 editor. When the native plugin is present, the addon detects it and does not register a second platform.
@@ -120,7 +143,8 @@ The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appea
 - **Export** uses Godot's own resource exporter, so scenes are remapped and textures, fonts and audio are taken from `.godot/imported`. The Vita never imports assets. The runtime template (`vita/templates/vita_release.zip`) contains the loader, `libgodot.so`, the boot animation and a manifest with SHA-256 hashes; hashes are verified before packaging, and the destination VPK is only replaced after a successful build.
 - `PARAM.SFO`, the LiveArea XML and the VPK are generated in GDScript, with no external tools. Export is always Release; **Export With Debug** is accepted but produces a Release package.
 
-### Export options
+<a id="export-options"></a>
+### <img src="docs/images/headings/export-options.png" alt="Export options" width="720">
 
 | Option | Effect |
 |---|---|
@@ -135,7 +159,8 @@ The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appea
   <img src="docs/images/export_options.png" alt="PS Vita export options" width="900">
 </p>
 
-### Projects opened in the editor
+<a id="projects-opened-in-the-editor"></a>
+### <img src="docs/images/headings/projects-opened-in-the-editor.png" alt="Projects opened in the editor" width="720">
 
 The same editor opens and exports the ported games. These projects were adapted for the Vita runtime (960 × 544 viewport, Compatibility renderer, PS Vita preset) and open normally on the PC:
 
@@ -152,13 +177,15 @@ The same editor opens and exports the ported games. These projects were adapted 
   <br><em>OVERBURDEN (first 3D port, experimental GXM 3D)</em>
 </p>
 
-### Example export
+<a id="example-export"></a>
+### <img src="docs/images/headings/example-export.png" alt="Example export" width="720">
 
 [`examples/vita_export`](examples/vita_export) contains a minimal project, the `Exemplo.vpk` exported from it and its `ux0:data/exemplovita` data folder. Use it as a reference for the expected VPK and data layout, or install it to check that a Vita is ready for this runtime.
 
 ---
 
-## LiveArea template selection with previews
+<a id="livearea-template-selection-with-previews"></a>
+## <img src="docs/images/headings/livearea-template-selection-with-previews.png" alt="LiveArea template selection with previews" width="900">
 
 The LiveArea is the Vita home screen page of a game. Its layout is defined by `sce_sys/livearea/contents/template.xml`. The export preset exposes the **LiveArea > Style** list (`a1`–`a5` for games, plus the other system layouts for reference) and **Show template previews**, a horizontally scrolling strip with a picture of each layout, so the right `template.xml` can be chosen without guessing.
 
@@ -172,7 +199,8 @@ The LiveArea is the Vita home screen page of a game. Its layout is defined by `s
 
 ---
 
-## PS Vita trophies (in development)
+<a id="ps-vita-trophies-in-development"></a>
+## <img src="docs/images/headings/ps-vita-trophies-in-development.png" alt="PS Vita trophies - in development" width="900">
 
 A **PS Vita Trophies** tab is added to the editor's bottom panel. It builds a real trophy package for the VPK.
 
@@ -192,7 +220,8 @@ A **PS Vita Trophies** tab is added to the editor's bottom panel. It builds a re
 
 ---
 
-## Runtime architecture
+<a id="runtime-architecture"></a>
+## <img src="docs/images/headings/runtime-architecture.png" alt="Runtime architecture" width="900">
 
 ```
 eboot.bin (loader, C)                      libgodot.so (Godot 4.8-dev7, C++)
@@ -211,7 +240,8 @@ eboot.bin (loader, C)                      libgodot.so (Godot 4.8-dev7, C++)
 
 ---
 
-## Native GXM 2D renderer
+<a id="native-gxm-2d-renderer"></a>
+## <img src="docs/images/headings/native-gxm-2d-renderer.png" alt="Native GXM 2D renderer" width="900">
 
 Godot's Compatibility renderer relies on GLES3 shaders that the Vita's shader compiler cannot handle reliably. Instead, `rasterizer_gxm_vita.cpp` + `gxm_canvas_vita.inc` translate Godot **CanvasItem** commands directly into GXM draws through a pinned [libvita2d](https://github.com/xerpi/libvita2d) context. No GLES shaders are used for 2D.
 
@@ -231,7 +261,8 @@ Validated on hardware with [Dodge the Creeps](https://github.com/WolffsRoom/Dodg
 
 ---
 
-## Experimental GXM 3D renderer
+<a id="experimental-gxm-3d-renderer"></a>
+## <img src="docs/images/headings/experimental-gxm-3d-renderer.png" alt="Experimental GXM 3D renderer" width="900">
 
 `rasterizer_scene_gxm_vita.inc` (built into `libgodot_gxm3d.so`, enabled at run time by `gxm3d.cfg`) draws Godot **MeshInstance3D** scenes with GXM, sharing the 2D canvas for UI. It is used by the Overburden port and by the Buckshot Roulette validation.
 
@@ -244,7 +275,8 @@ Not available yet: real-time shadow maps, fog, screen-space effects, custom spat
 
 ---
 
-## Audio, input, memory and data loading
+<a id="audio-input-memory-and-data-loading"></a>
+## <img src="docs/images/headings/audio-input-memory-and-data-loading.png" alt="Audio, input, memory and data loading" width="900">
 
 - **Audio:** Godot's AudioServer mixes as usual; the Vita driver sends PCM16 to SceAudio. The default `audio/vita/output_mode="godot3"` reproduces the layout of the Godot 3 Vita driver that plays without distortion on hardware (BGM port, project mix rate, 512-frame blocks). `main48` keeps the earlier 48 kHz / 2048-frame layout. See [AUDIO_BACKEND.md](platform/vita/AUDIO_BACKEND.md).
 - **Input:** D-pad, both analog sticks, face buttons, shoulders, START/SELECT as Godot joypad 0, plus **front touch screen** events.
@@ -252,22 +284,84 @@ Not available yet: real-time shadow maps, fog, screen-space effects, custom spat
 
 ---
 
-## Games running on this engine
+<a id="games-running-on-this-engine"></a>
+## <img src="docs/images/headings/games-running-on-this-engine.png" alt="Games running on this engine" width="900">
 
-| Game | Type | Status |
-|---|---|---|
-| [Dodge the Creeps](https://github.com/WolffsRoom/DodgeTheCreeps-PSVita) | 2D, Godot's official demo | **First game on the engine.** Gameplay, collisions, HUD, audio and controls confirmed on a physical Vita. |
-| [Ambidextro](https://github.com/WolffsRoom/Ambidextro-Vita) | 2D commercial game | Beta release; playable on hardware with the native GXM 2D renderer. |
-| [Deltarune Lightners Live Plus](https://github.com/WolffsRoom/DeltaruneLightnersVita) | 2D fan game | Playable and v1.0 available (60 FPS) |
-| [Tenebrarium](https://github.com/WolffsRoom/TenebrariumVita) | 2D | Alpha; runs on hardware. Drove NinePatch, polygons, SubViewport, batching and touch support. |
-| [OVERBURDEN](https://github.com/WolffsRoom/OVERBURDEN-Vita) | **First 3D game** | In development; full game playable on hardware at ~30 FPS with the experimental GXM 3D renderer. |
-| Buckshot Roulette | 3D | Internal validation of the 3D limits: boots, main menu and options work; gameplay does not start yet because of the complexity of its 3D scene. |
+The clips below were recorded directly from the local Godot project builds. They show the projects running on the desktop editor/runtime, not Vita emulation; hardware status is described under each game.
+
+<p align="center">
+  <img src="docs/images/games/showcase-slider.gif" alt="Animated Godot4Vita game showcase" width="720">
+</p>
+
+<a id="dodge-the-creeps"></a>
+### [<img src="docs/images/headings/dodge-the-creeps.png" alt="Dodge the Creeps" width="600">](https://github.com/WolffsRoom/DodgeTheCreeps-PSVita)
+
+<p align="center">
+  <img src="docs/images/games/dodge-the-creeps.gif" alt="Dodge the Creeps running on Godot4Vita" width="640">
+</p>
+
+**2D — Godot's official demo.** The first game on the engine. Gameplay, collisions, HUD, audio and controls are confirmed on a physical Vita.
+
+<a id="ambidextro"></a>
+### [<img src="docs/images/headings/ambidextro.png" alt="Ambidextro" width="600">](https://github.com/WolffsRoom/Ambidextro-Vita)
+
+<p align="center">
+  <img src="docs/images/games/ambidextro.gif" alt="Ambidextro running on Godot4Vita" width="640">
+</p>
+
+**2D commercial game.** Beta release; playable on hardware with the native GXM 2D renderer.
+
+<a id="deltarune-lightners-live-plus"></a>
+### [<img src="docs/images/headings/deltarune-lightners-live-plus.png" alt="Deltarune Lightners Live Plus" width="600">](https://github.com/WolffsRoom/DeltaruneLightnersVita)
+
+<p align="center">
+  <img src="docs/images/games/deltarune-lightners-live-plus.gif" alt="Deltarune Lightners Live Plus running on Godot4Vita" width="640">
+</p>
+
+**2D fan game.** Playable on hardware; v1.0 is available and runs at 60 FPS.
+
+<a id="tenebrarium"></a>
+### [<img src="docs/images/headings/tenebrarium.png" alt="Tenebrarium" width="600">](https://github.com/WolffsRoom/TenebrariumVita)
+
+<p align="center">
+  <img src="docs/images/games/tenebrarium.gif" alt="Tenebrarium running on Godot4Vita" width="640">
+</p>
+
+**2D.** Alpha running on hardware. The port drove NinePatch, polygon, SubViewport, batching and touch support in the native renderer.
+
+<a id="overburden"></a>
+### [<img src="docs/images/headings/overburden.png" alt="OVERBURDEN" width="600">](https://github.com/WolffsRoom/OVERBURDEN-Vita)
+
+<p align="center">
+  <img src="docs/images/games/overburden.gif" alt="OVERBURDEN running on Godot4Vita" width="640">
+</p>
+
+**First 3D game.** The full game is playable on hardware at approximately 30 FPS with the experimental GXM 3D renderer.
+
+<a id="buckshot-roulette"></a>
+### <img src="docs/images/headings/buckshot-roulette.png" alt="Buckshot Roulette" width="600">
+
+<p align="center">
+  <img src="docs/images/games/buckshot-roulette.gif" alt="Buckshot Roulette running on Godot4Vita" width="640">
+</p>
+
+**3D validation project.** It boots and its main menu and options work. Gameplay does not start yet because of the complexity of its 3D scene.
+
+<a id="lantern-crossing"></a>
+### [<img src="docs/images/headings/lantern-crossing.png" alt="Lantern Crossing" width="600">](https://github.com/jeeve-javari/lantern-crossing-vita)
+
+<p align="center">
+  <img src="docs/images/games/lantern-crossing.gif" alt="Lantern Crossing running on Godot4Vita" width="640">
+</p>
+
+**3D.** A PS Vita port by [jeeve-javari](https://github.com/jeeve-javari), using the experimental GXM 3D renderer and Vita-specific scene adaptations.
 
 ---
 
-## Download and quick start
+<a id="download-and-quick-start"></a>
+## <img src="docs/images/headings/download-and-quick-start.png" alt="Download and quick start" width="900">
 
-1. Download **`Godot4Vita-v0.1-Windows-x64.zip`** from the [latest release](https://github.com/WolffsRoom/godot4-psvita/releases/latest) and extract the whole folder. Keep `vita/` next to `Godot4Vita.exe`.
+1. Download **`Godot4Vita-v0.2-Windows-x64.zip`** from the [latest release](https://github.com/WolffsRoom/godot4-psvita/releases/latest) and extract the whole folder. Keep `vita/` next to `Godot4Vita.exe`.
 2. Open or create a project. In **Project > Export > Add…** choose **PS Vita** and click **Prepare settings for PS Vita**.
 3. Set the title, a unique 9-character Title ID and the version, choose the LiveArea style and the data folder name.
 4. Click **Export Project** and save the `.vpk`.
@@ -277,7 +371,8 @@ The PS Vita export and trophy panels are currently labelled in Portuguese (for e
 
 ---
 
-## Limitations
+<a id="limitations"></a>
+## <img src="docs/images/headings/limitations.png" alt="Limitations" width="900">
 
 - Canvas 2D is a subset: CanvasItem shaders/materials, CanvasGroup effects, GPU particles and some text modes are not rendered (unsupported materials fall back to unshaded drawing).
 - 3D is experimental (see above); performance and memory must be checked per game.
@@ -288,7 +383,8 @@ The PS Vita export and trophy panels are currently labelled in Portuguese (for e
 
 ---
 
-## Building from source
+<a id="building-from-source"></a>
+## <img src="docs/images/headings/building-from-source.png" alt="Building from source" width="900">
 
 **Requirements:** Linux/WSL, [VitaSDK](https://vitasdk.org), Python 3, SCons, CMake, the patched [VitaGL](https://github.com/Rinnegatamante/vitagl) build described in [platform/vita/vitagl](platform/vita/vitagl/README.md), and MinGW-w64 (POSIX threads) for the Windows editor.
 
@@ -312,7 +408,8 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 
 ---
 
-## Repository structure
+<a id="repository-structure"></a>
+## <img src="docs/images/headings/repository-structure.png" alt="Repository structure" width="900">
 
 | Path | Purpose |
 |---|---|
@@ -327,7 +424,8 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 
 ---
 
-## Credits
+<a id="credits"></a>
+## <img src="docs/images/headings/credits.png" alt="Credits" width="900">
 
 - [Godot Engine](https://github.com/godotengine/godot) for upstream engine ([README.godot.md](README.godot.md)); loading animation adapted from the official `custom_splash_screen` demo.
 - [VitaSDK](https://vitasdk.org), [VitaGL](https://github.com/Rinnegatamante/vitagl), [libvita2d](https://github.com/xerpi/libvita2d), [kuBridge](https://github.com/TheOfficialFloW/kuBridge), [NoTrpDrm](https://github.com/Rinnegatamante/NoTrpDrm).
