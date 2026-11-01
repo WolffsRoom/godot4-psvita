@@ -427,17 +427,16 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 
 ---
 
+
 <a id="contributors"></a>
 <p align="center">
   <a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors">
-    <picture>
-      <source media="(prefers-color-scheme: lgiht)" srcset="docs/images/headings/dark/contributors.png">
-      <img src="docs/images/headings/light/contributors.png" alt="Contributors" width="720">
-    </picture>
+    <img src="docs/images/headings/light/contributors.png#gh-light-mode-only" alt="Contributors" width="720">
+    <img src="docs/images/headings/dark/contributors.png#gh-dark-mode-only" alt="Contributors" width="720">
   </a>
   <br>
   <sub>People who have contributed code and project improvements to Godot4Vita.</sub>
-	<br>
+  <br>
   <br>
   <a href="https://github.com/WolffsRoom/godot4-psvita/graphs/contributors">
     <img src="https://contrib.rocks/image?repo=WolffsRoom/godot4-psvita" alt="Godot4Vita contributors">
