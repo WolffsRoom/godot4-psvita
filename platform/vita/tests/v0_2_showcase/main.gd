@@ -1,47 +1,103 @@
 extends Node3D
 
+var world_3d: Node3D
+var camera: Camera3D
 var hero: AnimatedSprite3D
 var glass_sprites: Array[Sprite3D] = []
+var moving_lights: Array[OmniLight3D] = []
+var preview_2d: CanvasLayer
+var sprite_2d: Sprite2D
+var hud_3d: CanvasLayer
+var status_label: Label
+var mode_2d := false
 var animation_enabled := true
 var tilt_enabled := true
 var elapsed := 0.0
-var status_label: Label
+var camera_yaw := 0.0
+var camera_pitch := -0.18
+var camera_distance := 8.0
+var camera_target := Vector3(0.0, 0.8, 0.0)
 
 func _ready() -> void:
+	_build_environment()
 	_build_camera()
 	_build_world()
 	_build_sprite_showcase()
-	_build_ui()
-	_update_status()
+	_build_3d_hud()
+	_build_2d_preview()
+	_update_mode()
+
+func _build_environment() -> void:
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_COLOR
+	environment.background_color = Color("8fcdf4")
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color("d8efff")
+	environment.ambient_light_energy = 1.25
+	var world_environment := WorldEnvironment.new()
+	world_environment.environment = environment
+	add_child(world_environment)
 
 func _build_camera() -> void:
-	var camera := Camera3D.new()
-	camera.position = Vector3(0.0, 2.8, 8.0)
-	camera.look_at_from_position(camera.position, Vector3(0.0, 0.7, 0.0), Vector3.UP)
+	camera = Camera3D.new()
 	add_child(camera)
+	_update_camera()
 
 func _material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
+	material.roughness = 0.72
 	return material
 
-func _box(position: Vector3, size: Vector3, color: Color) -> void:
+func _mesh_node(mesh: PrimitiveMesh, position: Vector3, color: Color) -> MeshInstance3D:
 	var node := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = size
 	mesh.material = _material(color)
 	node.mesh = mesh
 	node.position = position
-	add_child(node)
+	world_3d.add_child(node)
+	return node
+
+func _box(position: Vector3, size: Vector3, color: Color) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	_mesh_node(mesh, position, color)
 
 func _build_world() -> void:
-	_box(Vector3(0.0, -0.35, 0.0), Vector3(10.0, 0.25, 10.0), Color("263552"))
+	world_3d = Node3D.new()
+	world_3d.name = "BrightGXM3DWorld"
+	add_child(world_3d)
+	_box(Vector3(0.0, -0.35, 0.0), Vector3(10.0, 0.25, 10.0), Color("e9f4ff"))
 	for z in range(-3, 4):
-		var shade := 0.18 + float(z + 3) * 0.035
-		_box(Vector3(-3.8, 0.35, float(z)), Vector3(0.55, 1.35, 0.55), Color(shade, 0.32, 0.52))
-		_box(Vector3(3.8, 0.35, float(z)), Vector3(0.55, 1.35, 0.55), Color(0.48, shade, 0.32))
-	for z in range(-3, 4):
-		_box(Vector3(0.0, -0.18, float(z)), Vector3(0.08, 0.03, 0.65), Color("66d9ef"))
+		var shade := 0.42 + float(z + 3) * 0.045
+		_box(Vector3(-3.8, 0.35, float(z)), Vector3(0.55, 1.35, 0.55), Color(shade, 0.56, 0.92))
+		_box(Vector3(3.8, 0.35, float(z)), Vector3(0.55, 1.35, 0.55), Color(0.95, shade, 0.42))
+		_box(Vector3(0.0, -0.18, float(z)), Vector3(0.10, 0.035, 0.65), Color("167dba"))
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.68
+	sphere.height = 1.36
+	_mesh_node(sphere, Vector3(-2.1, 0.5, -1.3), Color("ff5c8a"))
+	var cylinder := CylinderMesh.new()
+	cylinder.top_radius = 0.52
+	cylinder.bottom_radius = 0.78
+	cylinder.height = 1.45
+	_mesh_node(cylinder, Vector3(2.15, 0.38, -1.5), Color("32c7d9"))
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.42
+	torus.outer_radius = 0.95
+	var torus_node := _mesh_node(torus, Vector3(0.0, 1.1, -2.5), Color("ffd166"))
+	torus_node.rotation_degrees.x = 72.0
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-52.0, -28.0, 0.0)
+	sun.light_color = Color("fff0d0")
+	sun.light_energy = 1.1
+	world_3d.add_child(sun)
+	for data in [[Color("ff4d8d"), 0.0], [Color("56d6ff"), PI]]:
+		var light := OmniLight3D.new()
+		light.light_color = data[0]
+		light.light_energy = 2.4
+		light.omni_range = 4.5
+		world_3d.add_child(light)
+		moving_lights.append(light)
 
 func _make_sprite_texture(primary: Color, accent: Color, phase: int) -> ImageTexture:
 	var image := Image.create(48, 64, false, Image.FORMAT_RGBA8)
@@ -78,54 +134,125 @@ func _build_sprite_showcase() -> void:
 	hero = AnimatedSprite3D.new()
 	hero.sprite_frames = frames
 	hero.animation = "pulse"
-	hero.pixel_size = 0.018
-	hero.position = Vector3(0.0, 0.65, 0.0)
+	hero.pixel_size = 0.019
+	hero.position = Vector3(0.0, 0.72, 0.0)
 	hero.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	hero.play()
-	add_child(hero)
-
-	var glass_colors := [Color("ff4d8d"), Color("56d6ff"), Color("ffd166")]
-	var positions := [Vector3(-1.25, 0.7, 1.0), Vector3(0.8, 0.8, 0.35), Vector3(1.35, 0.75, -0.8)]
-	for i in range(3):
+	world_3d.add_child(hero)
+	var colors := [Color("ff4d8d"), Color("56d6ff"), Color("ffd166"), Color("8d7aff")]
+	var positions := [Vector3(-1.35, 0.8, 1.1), Vector3(0.75, 0.9, 0.45), Vector3(1.45, 0.82, -0.75), Vector3(-0.7, 0.76, -1.4)]
+	for i in range(4):
 		var sprite := Sprite3D.new()
-		sprite.texture = _make_glass_texture(glass_colors[i])
+		sprite.texture = _make_glass_texture(colors[i])
 		sprite.pixel_size = 0.022
 		sprite.position = positions[i]
 		sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		sprite.modulate = Color(glass_colors[i], 0.88)
+		sprite.modulate = Color(colors[i], 0.88)
 		glass_sprites.append(sprite)
-		add_child(sprite)
+		world_3d.add_child(sprite)
 
-func _build_ui() -> void:
-	var layer := CanvasLayer.new()
-	add_child(layer)
+func _label(parent: Node, text: String, position: Vector2, size: int) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.position = position
+	label.add_theme_font_size_override("font_size", size)
+	parent.add_child(label)
+	return label
+
+func _build_3d_hud() -> void:
+	hud_3d = CanvasLayer.new()
+	add_child(hud_3d)
 	var panel := ColorRect.new()
-	panel.position = Vector2(20, 18)
-	panel.size = Vector2(560, 94)
-	panel.color = Color(0.025, 0.035, 0.075, 0.82)
-	layer.add_child(panel)
-	var title := Label.new()
-	title.position = Vector2(38, 28)
-	title.text = "GODOT 4 VITA v0.2  |  GXM3D SHOWCASE"
-	title.add_theme_font_size_override("font_size", 24)
-	layer.add_child(title)
-	status_label = Label.new()
-	status_label.position = Vector2(39, 66)
-	status_label.add_theme_font_size_override("font_size", 17)
-	layer.add_child(status_label)
-	var help := Label.new()
-	help.position = Vector2(22, 500)
-	help.text = "X: tilt-shift   O: animation   |   transparent sprites are depth-sorted"
-	help.add_theme_font_size_override("font_size", 16)
-	layer.add_child(help)
+	panel.position = Vector2(18, 16)
+	panel.size = Vector2(680, 102)
+	panel.color = Color(0.025, 0.055, 0.12, 0.86)
+	hud_3d.add_child(panel)
+	_label(hud_3d, "GODOT 4 VITA v0.2  |  GXM3D", Vector2(36, 27), 25)
+	status_label = _label(hud_3d, "", Vector2(37, 66), 17)
+	_label(hud_3d, "Analógicos: mover/orbitar  L/R: zoom   X: tilt   O: animação   START: 2D", Vector2(20, 505), 16)
+
+func _build_2d_preview() -> void:
+	preview_2d = CanvasLayer.new()
+	add_child(preview_2d)
+	var background := ColorRect.new()
+	background.size = Vector2(960, 544)
+	background.color = Color("15234c")
+	preview_2d.add_child(background)
+	for i in range(8):
+		var band := ColorRect.new()
+		band.position = Vector2(0, float(i) * 68.0)
+		band.size = Vector2(960, 68)
+		band.color = Color(0.08 + i * 0.018, 0.16 + i * 0.025, 0.34 + i * 0.035, 1.0)
+		preview_2d.add_child(band)
+	var card := NinePatchRect.new()
+	card.position = Vector2(72, 118)
+	card.size = Vector2(350, 292)
+	card.texture = _make_glass_texture(Color("56d6ff"))
+	card.patch_margin_left = 12
+	card.patch_margin_top = 12
+	card.patch_margin_right = 12
+	card.patch_margin_bottom = 12
+	card.modulate = Color(0.45, 0.9, 1.0, 0.88)
+	preview_2d.add_child(card)
+	var polygon := Polygon2D.new()
+	polygon.polygon = PackedVector2Array([Vector2(530, 145), Vector2(850, 190), Vector2(790, 410), Vector2(500, 370)])
+	polygon.color = Color("ff5c8a")
+	preview_2d.add_child(polygon)
+	var line := Line2D.new()
+	line.points = PackedVector2Array([Vector2(485, 430), Vector2(600, 330), Vector2(720, 450), Vector2(870, 320)])
+	line.width = 12.0
+	line.default_color = Color("ffd166")
+	preview_2d.add_child(line)
+	sprite_2d = Sprite2D.new()
+	sprite_2d.texture = _make_sprite_texture(Color("ffcf4a"), Color("7b61ff"), 0)
+	sprite_2d.position = Vector2(250, 265)
+	sprite_2d.scale = Vector2(3.0, 3.0)
+	preview_2d.add_child(sprite_2d)
+	_label(preview_2d, "PREVIEW GXM 2D", Vector2(28, 24), 30)
+	_label(preview_2d, "NinePatch • Polygon2D • Line2D • Sprite2D tint/alpha • batching", Vector2(30, 67), 18)
+	_label(preview_2d, "START: voltar ao cenário 3D", Vector2(28, 500), 18)
+
+func _deadzone(value: float) -> float:
+	return 0.0 if absf(value) < 0.16 else value
+
+func _update_camera() -> void:
+	var direction := Vector3(cos(camera_pitch) * sin(camera_yaw), sin(camera_pitch), cos(camera_pitch) * cos(camera_yaw))
+	camera.position = camera_target + direction * camera_distance
+	camera.look_at(camera_target, Vector3.UP)
+
+func _process_camera(delta: float) -> void:
+	var lx := _deadzone(Input.get_joy_axis(0, JoyAxis.JOY_AXIS_LEFT_X))
+	var ly := _deadzone(Input.get_joy_axis(0, JoyAxis.JOY_AXIS_LEFT_Y))
+	var rx := _deadzone(Input.get_joy_axis(0, JoyAxis.JOY_AXIS_RIGHT_X))
+	var ry := _deadzone(Input.get_joy_axis(0, JoyAxis.JOY_AXIS_RIGHT_Y))
+	camera_yaw -= rx * delta * 1.8
+	camera_pitch = clampf(camera_pitch - ry * delta * 1.35, -0.72, 0.38)
+	var right := Vector3(cos(camera_yaw), 0.0, -sin(camera_yaw))
+	var forward := Vector3(-sin(camera_yaw), 0.0, -cos(camera_yaw))
+	camera_target += (right * lx + forward * ly) * delta * 2.8
+	if Input.is_joy_button_pressed(0, JoyButton.JOY_BUTTON_LEFT_SHOULDER):
+		camera_distance = maxf(3.5, camera_distance - delta * 3.2)
+	if Input.is_joy_button_pressed(0, JoyButton.JOY_BUTTON_RIGHT_SHOULDER):
+		camera_distance = minf(12.0, camera_distance + delta * 3.2)
+	_update_camera()
 
 func _process(delta: float) -> void:
 	elapsed += delta
-	for i in range(glass_sprites.size()):
-		var sprite := glass_sprites[i]
-		sprite.position.y = 0.72 + sin(elapsed * 1.35 + i * 1.7) * 0.18
-		sprite.modulate.a = 0.68 + sin(elapsed * 1.8 + i) * 0.18
-	hero.modulate = Color(1.0, 0.72 + sin(elapsed * 2.2) * 0.28, 1.0, 1.0)
+	if Input.is_action_just_pressed("switch_view"):
+		mode_2d = not mode_2d
+		_update_mode()
+	if not mode_2d:
+		_process_camera(delta)
+		for i in range(glass_sprites.size()):
+			var sprite := glass_sprites[i]
+			sprite.position.y = 0.78 + sin(elapsed * 1.35 + i * 1.7) * 0.20
+			sprite.modulate.a = 0.68 + sin(elapsed * 1.8 + i) * 0.18
+		for i in range(moving_lights.size()):
+			moving_lights[i].position = Vector3(cos(elapsed * 0.8 + i * PI) * 2.8, 1.7, sin(elapsed * 0.8 + i * PI) * 2.8)
+		hero.modulate = Color(1.0, 0.72 + sin(elapsed * 2.2) * 0.28, 1.0, 1.0)
+	else:
+		sprite_2d.rotation = sin(elapsed * 1.2) * 0.12
+		sprite_2d.modulate = Color(1.0, 0.76 + sin(elapsed * 2.0) * 0.24, 1.0, 0.82 + sin(elapsed * 1.7) * 0.16)
 	if Input.is_action_just_pressed("toggle_tilt_shift"):
 		tilt_enabled = not tilt_enabled
 		ProjectSettings.set_setting("rendering/vita/tilt_shift", tilt_enabled)
@@ -138,8 +265,17 @@ func _process(delta: float) -> void:
 			hero.pause()
 		_update_status()
 
+func _update_mode() -> void:
+	world_3d.visible = not mode_2d
+	camera.current = not mode_2d
+	hud_3d.visible = not mode_2d
+	preview_2d.visible = mode_2d
+	_update_status()
+
 func _update_status() -> void:
-	status_label.text = "AnimatedSprite3D: %s   |   tilt-shift: %s   |   tint + alpha sorting: ON" % [
+	if not status_label:
+		return
+	status_label.text = "AnimatedSprite3D: %s   |   tilt-shift: %s   |   luzes móveis + alpha sorting" % [
 		"PLAYING" if animation_enabled else "PAUSED",
 		"ON" if tilt_enabled else "OFF"
 	]

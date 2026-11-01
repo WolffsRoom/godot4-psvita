@@ -27,4 +27,8 @@ toggle_animation={
 "deadzone": 0.5,
 "events": [Object(InputEventJoypadButton,"button_index":1)]
 }
+switch_view={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":6)]
+}
 
