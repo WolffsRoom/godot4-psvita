@@ -1,0 +1,30 @@
+[application]
+config/name="Godot 4 Vita v0.2 Showcase"
+run/main_scene="res://main.tscn"
+
+[display]
+window/size/viewport_width=960
+window/size/viewport_height=544
+window/size/window_width_override=960
+window/size/window_height_override=544
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+vita/gxm3d=true
+vita/tilt_shift=true
+vita/tilt_shift_top=0.34
+vita/tilt_shift_bottom=0.78
+vita/tilt_shift_strength=0.9
+vita/keep_aspect=true
+
+[input]
+toggle_tilt_shift={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":0)]
+}
+toggle_animation={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":1)]
+}
+
