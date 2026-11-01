@@ -290,6 +290,9 @@ Not available yet: real-time shadow maps, fog, screen-space effects, custom spat
 
 The clips below were recorded directly from the local Godot project builds. They show the projects running on the desktop editor/runtime, not Vita emulation; hardware status is described under each game.
 
+<details>
+<summary><b>View games and gameplay previews</b></summary>
+
 <p align="center">
   <img src="docs/images/games/showcase-slider.gif" alt="Animated Godot4Vita game showcase" width="720">
 </p>
@@ -297,112 +300,79 @@ The clips below were recorded directly from the local Godot project builds. They
 <a id="dodge-the-creeps"></a>
 <h3 align="center"><a href="https://github.com/WolffsRoom/DodgeTheCreeps-PSVita"><img src="docs/images/headings/light/dodge-the-creeps.png#gh-light-mode-only" alt="Dodge the Creeps" width="600"><img src="docs/images/headings/dark/dodge-the-creeps.png#gh-dark-mode-only" alt="Dodge the Creeps" width="600"></a></h3>
 
-<p align="center"><a href="https://github.com/WolffsRoom/DodgeTheCreeps-PSVita"><b>Project repository</b></a></p>
-
-<details>
-<summary>Gameplay preview</summary>
+<p align="center"><a href="https://github.com/WolffsRoom/DodgeTheCreeps-PSVita"><img src="docs/images/github-mark-light.svg#gh-light-mode-only" width="32" alt="Dodge the Creeps repository on GitHub"><img src="docs/images/github-mark-dark.svg#gh-dark-mode-only" width="32" alt="Dodge the Creeps repository on GitHub"></a></p>
 
 <p align="center">
   <img src="docs/images/games/dodge-the-creeps.gif" alt="Dodge the Creeps running on Godot4Vita" width="640">
 </p>
-
-</details>
 
 **2D - Godot's official demo.** The first game on the engine. Gameplay, collisions, HUD, audio and controls are confirmed on a physical Vita.
 
 <a id="ambidextro"></a>
 <h3 align="center"><a href="https://github.com/WolffsRoom/Ambidextro-Vita"><img src="docs/images/headings/light/ambidextro.png#gh-light-mode-only" alt="Ambidextro" width="600"><img src="docs/images/headings/dark/ambidextro.png#gh-dark-mode-only" alt="Ambidextro" width="600"></a></h3>
 
-<p align="center"><a href="https://github.com/WolffsRoom/Ambidextro-Vita"><b>Project repository</b></a></p>
-
-<details>
-<summary>Gameplay preview</summary>
+<p align="center"><a href="https://github.com/WolffsRoom/Ambidextro-Vita"><img src="docs/images/github-mark-light.svg#gh-light-mode-only" width="32" alt="Ambidextro repository on GitHub"><img src="docs/images/github-mark-dark.svg#gh-dark-mode-only" width="32" alt="Ambidextro repository on GitHub"></a></p>
 
 <p align="center">
   <img src="docs/images/games/ambidextro.gif" alt="Ambidextro running on Godot4Vita" width="640">
 </p>
-
-</details>
 
 **2D commercial game.** Beta release; playable on hardware with the native GXM 2D renderer.
 
 <a id="deltarune-lightners-live-plus"></a>
 <h3 align="center"><a href="https://github.com/WolffsRoom/DeltaruneLightnersVita"><img src="docs/images/headings/light/deltarune-lightners-live-plus.png#gh-light-mode-only" alt="Deltarune Lightners Live Plus" width="600"><img src="docs/images/headings/dark/deltarune-lightners-live-plus.png#gh-dark-mode-only" alt="Deltarune Lightners Live Plus" width="600"></a></h3>
 
-<p align="center"><a href="https://github.com/WolffsRoom/DeltaruneLightnersVita"><b>Project repository</b></a></p>
-
-<details>
-<summary>Gameplay preview</summary>
+<p align="center"><a href="https://github.com/WolffsRoom/DeltaruneLightnersVita"><img src="docs/images/github-mark-light.svg#gh-light-mode-only" width="32" alt="Deltarune Lightners Live Plus repository on GitHub"><img src="docs/images/github-mark-dark.svg#gh-dark-mode-only" width="32" alt="Deltarune Lightners Live Plus repository on GitHub"></a></p>
 
 <p align="center">
   <img src="docs/images/games/deltarune-lightners-live-plus.gif" alt="Deltarune Lightners Live Plus running on Godot4Vita" width="640">
 </p>
-
-</details>
 
 **2D fan game.** Playable on hardware; v1.0 is available and runs at 60 FPS.
 
 <a id="tenebrarium"></a>
 <h3 align="center"><a href="https://github.com/WolffsRoom/TenebrariumVita"><img src="docs/images/headings/light/tenebrarium.png#gh-light-mode-only" alt="Tenebrarium" width="600"><img src="docs/images/headings/dark/tenebrarium.png#gh-dark-mode-only" alt="Tenebrarium" width="600"></a></h3>
 
-<p align="center"><a href="https://github.com/WolffsRoom/TenebrariumVita"><b>Project repository</b></a></p>
-
-<details>
-<summary>Gameplay preview</summary>
+<p align="center"><a href="https://github.com/WolffsRoom/TenebrariumVita"><img src="docs/images/github-mark-light.svg#gh-light-mode-only" width="32" alt="Tenebrarium repository on GitHub"><img src="docs/images/github-mark-dark.svg#gh-dark-mode-only" width="32" alt="Tenebrarium repository on GitHub"></a></p>
 
 <p align="center">
   <img src="docs/images/games/tenebrarium.gif" alt="Tenebrarium running on Godot4Vita" width="640">
 </p>
-
-</details>
 
 **2D.** Alpha running on hardware. The port drove NinePatch, polygon, SubViewport, batching and touch support in the native renderer.
 
 <a id="overburden"></a>
 <h3 align="center"><a href="https://github.com/WolffsRoom/OVERBURDEN-Vita"><img src="docs/images/headings/light/overburden.png#gh-light-mode-only" alt="OVERBURDEN" width="600"><img src="docs/images/headings/dark/overburden.png#gh-dark-mode-only" alt="OVERBURDEN" width="600"></a></h3>
 
-<p align="center"><a href="https://github.com/WolffsRoom/OVERBURDEN-Vita"><b>Project repository</b></a></p>
-
-<details>
-<summary>Gameplay preview</summary>
+<p align="center"><a href="https://github.com/WolffsRoom/OVERBURDEN-Vita"><img src="docs/images/github-mark-light.svg#gh-light-mode-only" width="32" alt="OVERBURDEN repository on GitHub"><img src="docs/images/github-mark-dark.svg#gh-dark-mode-only" width="32" alt="OVERBURDEN repository on GitHub"></a></p>
 
 <p align="center">
   <img src="docs/images/games/overburden.gif" alt="OVERBURDEN running on Godot4Vita" width="640">
 </p>
-
-</details>
 
 **First 3D game.** The full game is playable on hardware at approximately 30 FPS with the experimental GXM 3D renderer.
 
 <a id="buckshot-roulette"></a>
 <h3 align="center"><img src="docs/images/headings/light/buckshot-roulette.png#gh-light-mode-only" alt="Buckshot Roulette" width="600"><img src="docs/images/headings/dark/buckshot-roulette.png#gh-dark-mode-only" alt="Buckshot Roulette" width="600"></h3>
 
-<details>
-<summary>Gameplay preview</summary>
-
 <p align="center">
   <img src="docs/images/games/buckshot-roulette.gif" alt="Buckshot Roulette running on Godot4Vita" width="640">
 </p>
-
-</details>
 
 **3D validation project.** It boots and its main menu and options work. Gameplay does not start yet because of the complexity of its 3D scene.
 
 <a id="lantern-crossing"></a>
 <h3 align="center"><a href="https://github.com/jeeve-javari/lantern-crossing-vita"><img src="docs/images/headings/light/lantern-crossing.png#gh-light-mode-only" alt="Lantern Crossing" width="600"><img src="docs/images/headings/dark/lantern-crossing.png#gh-dark-mode-only" alt="Lantern Crossing" width="600"></a></h3>
 
-<p align="center"><a href="https://github.com/jeeve-javari/lantern-crossing-vita"><b>Project repository</b></a></p>
-
-<details>
-<summary>Gameplay preview</summary>
+<p align="center"><a href="https://github.com/jeeve-javari/lantern-crossing-vita"><img src="docs/images/github-mark-light.svg#gh-light-mode-only" width="32" alt="Lantern Crossing repository on GitHub"><img src="docs/images/github-mark-dark.svg#gh-dark-mode-only" width="32" alt="Lantern Crossing repository on GitHub"></a></p>
 
 <p align="center">
   <img src="docs/images/games/lantern-crossing.gif" alt="Lantern Crossing running on Godot4Vita" width="640">
 </p>
 
-</details>
-
 **3D.** A PS Vita port by [jeeve-javari](https://github.com/jeeve-javari), using the experimental GXM 3D renderer and Vita-specific scene adaptations.
+
+</details>
 
 ---
 
