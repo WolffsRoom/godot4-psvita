@@ -104,12 +104,17 @@ int main(int argc, char *argv[]) {
         snprintf(engine_log, sizeof(engine_log), "%s/godot_engine.log", logs);
         snprintf(project_path, sizeof(project_path), "%s/game_data", base);
     }
-	// A single game.pck next to game_data is preferred: every loose file on
-	// ux0: costs a directory lookup (~150 ms measured per resource), while a
-	// pack is one short path plus seeks into an in-memory directory.
+	// A single game.pck is preferred: every loose file on ux0: costs a
+	// directory lookup (~150 ms measured per resource), while a pack is one
+	// short path plus seeks into an in-memory directory. New exports keep the
+	// pack in game_data; the older layout kept it beside game_data.
 	char pack_path[128];
-	snprintf(pack_path, sizeof(pack_path), "%.*s/game.pck", int(strrchr(project_path, '/') - project_path), project_path);
+	snprintf(pack_path, sizeof(pack_path), "%s/game.pck", project_path);
 	FILE *pack_file = fopen(pack_path, "rb");
+	if (!pack_file) {
+		snprintf(pack_path, sizeof(pack_path), "%.*s/game.pck", int(strrchr(project_path, '/') - project_path), project_path);
+		pack_file = fopen(pack_path, "rb");
+	}
 	bool use_pack = pack_file != NULL;
 	if (pack_file) fclose(pack_file);
 	vlog(use_pack ? "engine: using game.pck\n" : "engine: using loose game_data\n");

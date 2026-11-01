@@ -20,10 +20,12 @@ base = '\n'.join(line for line in base.splitlines() if not line.startswith('data
 env = dict(os.environ, APPDATA=str(WORK/'appdata'), LOCALAPPDATA=str(WORK/'localappdata'))
 results = {}
 
-def export(label, separate=None, folder='meujogovita', pack=False, destination=None, template=None, success=True):
+def export(label, separate=None, folder='meujogovita', pack=False, destination=None, template=None, success=True, package_format=None):
     preset = base + '\ndata/folder_name=' + json.dumps(folder) + '\n'
     if separate is not None:
         preset += 'data/separate_folder=' + str(separate).lower() + '\n'
+    if package_format is not None:
+        preset += 'data/package_format=' + json.dumps(package_format) + '\n'
     if template:
         preset = preset.replace('custom_template/release=""', 'custom_template/release=' + json.dumps(template.as_posix()))
     (PROJECT/'export_presets.cfg').write_text(preset)
@@ -46,18 +48,22 @@ with zipfile.ZipFile(split) as z:
     assert z.testzip() is None
     assert z.read('game_data_folder.cfg') == b'meujogovita'
     assert not any(n.startswith('game_data/') for n in z.namelist())
-assert (data/'project.binary').is_file()
-assert list(data.rglob('*.ctex'))
+assert (data/'game_data/game.pck').is_file()
+assert not (data/'project.binary').exists()
 assert (data/'.vita-export-owner').read_text() == 'GDOT40001'
 full, _ = export('full', separate=False)
 with zipfile.ZipFile(full) as z:
     assert z.testzip() is None
     assert 'game_data_folder.cfg' not in z.namelist()
-    assert z.read('game_data/project.binary') == (data/'project.binary').read_bytes()
-    for file in data.rglob('*'):
-        if file.is_file() and file.name != '.vita-export-owner':
-            assert file.read_bytes() == z.read('game_data/'+file.relative_to(data).as_posix())
+    assert z.read('game_data/game.pck') == (data/'game_data/game.pck').read_bytes()
 assert not (full.parent/'meujogovita').exists()
+loose, _ = export('loose', package_format='Game Data (arquivos soltos)')
+loose_data = loose.parent/'meujogovita'
+assert (loose_data/'game_data/project.binary').is_file()
+assert list(loose_data.rglob('*.ctex'))
+loose_full, _ = export('loose-full', separate=False, package_format='Game Data (arquivos soltos)')
+with zipfile.ZipFile(loose_full) as z:
+    assert z.read('game_data/project.binary') == (loose_data/'game_data/project.binary').read_bytes()
 (data/'previous-export-only.txt').write_text('preserve me')
 export('repeat', destination=split)
 backups = list(split.parent.glob('meujogovita.previous-*'))
@@ -92,9 +98,9 @@ with zipfile.ZipFile(ROOT/'editor-vita-integrado/vita/templates/vita_release.zip
         dst.writestr(name,raw)
 export('legacy-split', template=old, success=False)
 export('legacy-full', template=old, separate=False)
-# Run the exported loose resources on the host to check completeness.
+# Run the explicitly exported loose resources on the host to check completeness.
 log = WORK/'host-startup.log'
-run = subprocess.run([str(EDITOR),'--headless','--path',str(data),'--quit-after','120','--log-file',str(log)],env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=90)
+run = subprocess.run([str(EDITOR),'--headless','--path',str(loose_data/'game_data'),'--quit-after','120','--log-file',str(log)],env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=90)
 text = log.read_text(encoding='utf-8')
 assert run.returncode == 0 and 'SCRIPT ERROR' not in text and 'READY' in text, text
 results['loose_data_host_startup'] = 'passed'

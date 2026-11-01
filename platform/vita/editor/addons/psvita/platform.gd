@@ -42,6 +42,7 @@ func _get_binary_extensions(_preset: EditorExportPreset) -> PackedStringArray:
 func _get_export_options() -> Array[Dictionary]:
 	var options: Array[Dictionary] = [
 		{"name": "data/separate_folder", "type": TYPE_BOOL, "default_value": true},
+		{"name": "data/package_format", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "PCK,Game Data (arquivos soltos)", "default_value": "PCK"},
 		{"name": "data/folder_name", "type": TYPE_STRING, "default_value": "godotvitagame"},
 		{"name": "performance/capunlocker", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "Desativado:disabled,Opcional:optional,Obrigatório:required", "default_value": "optional"},
 		{"name": "textures/gpu_format", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "RGBA4444,RGBA8888", "default_value": "RGBA4444"},
@@ -94,6 +95,8 @@ func _configuration_error(preset: EditorExportPreset, _debug: bool) -> String:
 			return "Troféus: " + trophy_error
 	if preset.get("data/separate_folder") and not valid_data_folder(str(preset.get("data/folder_name"))):
 		return "Nome da pasta de dados: use 1 a 64 letras, números, hífen ou sublinhado; não use nomes reservados do Windows."
+	if str(preset.get("data/package_format")) not in ["PCK", "Game Data (arquivos soltos)"]:
+		return "Selecione PCK ou Game Data (arquivos soltos)."
 	if str(preset.get("textures/gpu_format")) not in ["RGBA4444", "RGBA8888"]:
 		return "Selecione RGBA4444 ou RGBA8888 para as texturas da GPU."
 	if str(preset.get("performance/capunlocker")) not in ["disabled", "optional", "required"]:
@@ -156,6 +159,8 @@ func _has_valid_project_configuration(preset: EditorExportPreset) -> bool:
 func _get_export_option_warning(_preset: EditorExportPreset, option: StringName) -> String:
 	if option == &"data/separate_folder":
 		return "Ativado: gera VPK + pasta de dados para ux0:data/. Desativado: inclui todos os dados no VPK."
+	if option == &"data/package_format":
+		return "PCK é o padrão recomendado e carrega mais rápido. Game Data gera os recursos soltos para depuração e atualização manual."
 	if option == &"data/folder_name":
 		return "Copie esta pasta inteira para ux0:data/ no Vita. Use um nome exclusivo para cada jogo."
 	if option == &"textures/gpu_format" and _preset.get(option) == "RGBA4444":
@@ -237,6 +242,7 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 		add_message(EXPORT_MESSAGE_INFO, "PS Vita", "Release export selected: this runtime has no debug template or remote debugger.")
 	path = path.get_basename() + ".vpk" if path.get_extension().to_lower() in ["vpk", "zip", "pck"] else path + ".vpk"
 	var separate: bool = preset.get("data/separate_folder")
+	var package_pck := str(preset.get("data/package_format")) == "PCK"
 	var folder: String = preset.get("data/folder_name")
 	var destination := ProjectSettings.globalize_path(path)
 	var data_destination := destination.get_base_dir().path_join(folder)
@@ -272,15 +278,15 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 		if hashing.finish().hex_encode() != manifest.get("sha256", {}).get(binary, ""):
 			template.close()
 			return _fail("Template integrity check failed: " + binary)
-	var temp := ProjectSettings.globalize_path("res://.godot/vita-export-%s.zip" % Time.get_ticks_usec())
+	var temp := ProjectSettings.globalize_path("res://.godot/vita-export-%s.%s" % [Time.get_ticks_usec(), "pck" if package_pck else "zip"])
 	# The generic save dialog defaults to Debug; this platform ships Release only.
-	var result := save_zip(preset, false, temp)
+	var result := save_pack(preset, false, temp) if package_pck else save_zip(preset, false, temp)
 	if result.get("result", FAILED) != OK or not result.get("so_files", []).is_empty():
 		template.close()
 		DirAccess.remove_absolute(temp)
 		return _fail("Resource export failed or project contains unsupported native extensions.")
 	var game := ZIPReader.new()
-	if game.open(temp) != OK:
+	if not package_pck and game.open(temp) != OK:
 		template.close()
 		DirAccess.remove_absolute(temp)
 		return _fail("Cannot open exported resources.")
@@ -317,7 +323,13 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 				error = _write_data(data_staging.path_join(".vita-export-owner"), owner.to_utf8_buffer())
 		if error == OK and not trophy_package.is_empty():
 			error = _put(zip, trophy_package.vpk_path, trophy_package.trp)
-		if error == OK:
+		if error == OK and package_pck:
+			var pck_bytes := FileAccess.get_file_as_bytes(temp)
+			if pck_bytes.is_empty():
+				error = ERR_FILE_CORRUPT
+			else:
+				error = _write_data(data_staging.path_join("game_data/game.pck"), pck_bytes) if separate else _put(zip, "game_data/game.pck", pck_bytes)
+		if error == OK and not package_pck:
 			for name in game.get_files():
 				if not _safe_path(name):
 					error = ERR_INVALID_DATA
@@ -332,7 +344,8 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 		var close_error := zip.close()
 		if error == OK:
 			error = close_error
-	game.close()
+	if not package_pck:
+		game.close()
 	template.close()
 	DirAccess.remove_absolute(temp)
 	var previous_data := data_destination + ".previous-%s" % Time.get_ticks_usec()
@@ -370,7 +383,7 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 		DirAccess.remove_absolute(previous_vpk)
 	add_message(EXPORT_MESSAGE_INFO, "PS Vita", "VPK: " + destination)
 	if separate:
-		add_message(EXPORT_MESSAGE_INFO, "PS Vita", "Copie a pasta " + data_destination + " para ux0:data/ (destino: ux0:data/" + folder + ").")
+		add_message(EXPORT_MESSAGE_INFO, "PS Vita", "Copie a pasta " + data_destination + " para ux0:data/ (destino: ux0:data/" + folder + ", formato: " + ("game.pck" if package_pck else "game_data solto") + ").")
 	if backed_up:
 		add_message(EXPORT_MESSAGE_INFO, "PS Vita", "Dados anteriores preservados em " + previous_data)
 	return OK
