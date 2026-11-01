@@ -39,6 +39,7 @@ public:
         // Local positions and normals in the same flattened order, kept only
         // for surfaces that receive per-vertex lighting.
         Vector<Vector3> positions, normals;
+        Color tint = Color(1, 1, 1, 1); // Vertex-color tint
     };
     struct SurfaceInfo {
         bool triangles = false;
@@ -212,7 +213,88 @@ public:
         arena_exhausted = false;
         vita_gxm_mesh_reset();
     }
-    void mesh_free(RID rid) override { invalidate_mesh(rid); RendererDummy::MeshStorage::mesh_free(rid); }
+    void mesh_free(RID rid) override { invalidate_mesh(rid); custom_aabbs.erase(rid); RendererDummy::MeshStorage::mesh_free(rid); }
+    // In-place region updates (Sprite3D) and custom AABBs.
+    HashMap<RID, AABB> custom_aabbs;
+    void patch_surface(RID rid, int surface, int offset, const Vector<uint8_t> &data, int which) {
+        RendererDummy::DummyMesh *m = get_mesh(rid);
+        ERR_FAIL_NULL(m);
+        ERR_FAIL_INDEX(surface, m->surfaces.size());
+        RenderingServerTypes::SurfaceData &s = m->surfaces.write[surface];
+        Vector<uint8_t> &target = which == 0 ? s.vertex_data : (which == 1 ? s.attribute_data : (which == 2 ? s.skin_data : s.index_data));
+        ERR_FAIL_COND(offset < 0 || offset + data.size() > target.size());
+        memcpy(target.ptrw() + offset, data.ptr(), data.size());
+        if (!refresh_in_place(rid, surface)) invalidate_mesh(rid);
+        m->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_MESH);
+    }
+    // Rewrites an already uploaded surface in its existing GPU arena slot.
+    // Dropping and re-flattening on every sprite frame leaked arena space
+    // until the renderer rebuilt all geometry at once (a long hitch).
+    bool refresh_in_place(RID rid, int surface) {
+        auto *surfaces = flat.getptr(rid);
+        FlatSurface *value = surfaces ? surfaces->getptr(surface) : nullptr;
+        if (!value || !value->gpu) return false;
+        Array arrays = RenderingServer::get_singleton()->mesh_create_arrays_from_surface_data(mesh_get_surface(rid, surface));
+        if (arrays.is_empty()) return false;
+        PackedVector3Array positions = arrays[RSE::ARRAY_VERTEX];
+        PackedVector2Array uvs = arrays[RSE::ARRAY_TEX_UV];
+        PackedInt32Array indices = arrays[RSE::ARRAY_INDEX];
+        int count = indices.is_empty() ? positions.size() : indices.size();
+        count -= count % 3;
+        if (count <= 0 || unsigned(count) != value->count) return false;
+        Vector<float> xyz, uv;
+        xyz.resize(count * 3);
+        uv.resize(count * 2);
+        float *xyz_w = xyz.ptrw();
+        float *uv_w = uv.ptrw();
+        for (int i = 0; i < count; i++) {
+            int vertex = indices.is_empty() ? i : indices[i];
+            if (vertex < 0 || vertex >= positions.size()) return false;
+            xyz_w[i * 3] = positions[vertex].x;
+            xyz_w[i * 3 + 1] = positions[vertex].y;
+            xyz_w[i * 3 + 2] = positions[vertex].z;
+            uv_w[i * 2] = vertex < uvs.size() ? uvs[vertex].x : 0.0f;
+            uv_w[i * 2 + 1] = vertex < uvs.size() ? uvs[vertex].y : 0.0f;
+        }
+        if (!vita_gxm_mesh_update(value->gpu, xyz.ptr(), uv.ptr(), unsigned(count))) return false;
+        value->positions.clear();
+        value->normals.clear();
+        set_tint(rid, surface, arrays[RSE::ARRAY_COLOR]);
+        auto *mesh = decoded.getptr(rid);
+        if (mesh) {
+            for (const KeyValue<int, Array> &cached : *mesh) {
+                PackedVector3Array cached_positions = cached.value.is_empty() ? PackedVector3Array() : PackedVector3Array(cached.value[RSE::ARRAY_VERTEX]);
+                uint64_t bytes = uint64_t(cached_positions.size()) * 256 + uint64_t(PackedInt32Array(cached.value[RSE::ARRAY_INDEX]).size()) * 4;
+                cache_bytes = cache_bytes > bytes ? cache_bytes - bytes : 0;
+            }
+            decoded.erase(rid);
+        }
+        return true;
+    }
+    // Vertex colors become one tint per surface. Sprite3D carries modulate
+    // (hit flashes, tells, fades) only in its vertex colors.
+    void set_tint(RID rid, int surface, const PackedColorArray &colors) {
+        auto *entry = flat.getptr(rid);
+        FlatSurface *value = entry ? entry->getptr(surface) : nullptr;
+        if (!value) return;
+        if (colors.is_empty()) { value->tint = Color(1, 1, 1, 1); return; }
+        Color sum(0, 0, 0, 0);
+        for (int i = 0; i < colors.size(); i++) sum += colors[i];
+        value->tint = sum / float(colors.size());
+    }
+    void mesh_surface_update_vertex_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 0); }
+    void mesh_surface_update_attribute_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 1); }
+    void mesh_surface_update_skin_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 2); }
+    void mesh_surface_update_index_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 3); }
+    void mesh_set_custom_aabb(RID rid, const AABB &aabb) override {
+        if (aabb.size == Vector3()) custom_aabbs.erase(rid); else custom_aabbs[rid] = aabb;
+        RendererDummy::DummyMesh *m = get_mesh(rid);
+        if (m) m->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_AABB);
+    }
+    AABB mesh_get_custom_aabb(RID rid) const override {
+        const AABB *aabb = custom_aabbs.getptr(rid);
+        return aabb ? *aabb : AABB();
+    }
     void mesh_clear(RID rid) override { invalidate_mesh(rid); RendererDummy::MeshStorage::mesh_clear(rid); }
     void mesh_surface_remove(RID rid, int surface) override { invalidate_mesh(rid); RendererDummy::MeshStorage::mesh_surface_remove(rid, surface); }
     void mesh_add_surface(RID rid, const RenderingServerTypes::SurfaceData &surface) override {
@@ -234,6 +316,8 @@ public:
         return arrays;
     }
     AABB mesh_get_aabb(RID rid, RID skeleton = RID()) override {
+        const AABB *custom = custom_aabbs.getptr(rid); // Custom AABB wins
+        if (custom) return *custom;
         AABB bounds;
         int count = mesh_get_surface_count(rid);
         for (int i = 0; i < count; i++) {
@@ -431,6 +515,19 @@ class GXMScene : public RasterizerSceneDummy {
         void set_layer_mask(uint32_t value) override { layers = value; }
         void set_skeleton(RID rid) override { skeleton = rid; }
     };
+    // Deferred transparent surfaces.
+    struct TransparentDraw {
+        void *mesh = nullptr;
+        void *texture = nullptr;
+        float matrix[16];
+        uint32_t color = 0;
+        unsigned count = 0;
+        float depth = 0.0f;
+        struct Sort {
+            _FORCE_INLINE_ bool operator()(const TransparentDraw &a, const TransparentDraw &b) const { return a.depth > b.depth; }
+        };
+    };
+    LocalVector<TransparentDraw> transparent_draws;
     struct DrawCandidate {
         Instance *instance = nullptr;
         float center_distance = 0.0f;
@@ -840,7 +937,11 @@ public:
             WARN_PRINT_ONCE("GXM3D: offscreen 3D viewports are not implemented.");
             return;
         }
-        vita_gxm_begin(gxm_color(textures->render_target_get_clear_request_color(target->target)));
+        // Tilt-shift renders the 3D pass offscreen first.
+        uint32_t clear_color = gxm_color(textures->render_target_get_clear_request_color(target->target));
+        if (!bool(ProjectSettings::get_singleton()->get_setting("rendering/vita/tilt_shift", false)) || !vita_gxm_begin_offscreen(clear_color)) {
+            vita_gxm_begin(clear_color);
+        }
         textures->render_target_disable_clear_request(target->target);
         uint64_t started = OS::get_singleton()->get_ticks_usec();
         unsigned triangles = 0, attempted = 0, distance_culled = 0;
@@ -935,6 +1036,12 @@ public:
             draw_candidates.push_back(candidate);
         }
         draw_candidates.sort_custom<DrawCandidate::Sort>();
+        // Depth along the camera's horizontal heading orders the transparent pass.
+        const Vector3 eye = camera->main_transform.origin;
+        Vector3 view_forward = -camera->main_transform.basis.get_column(2);
+        view_forward.y = 0.0f;
+        view_forward = view_forward.length_squared() > 0.0001f ? view_forward.normalized() : -camera->main_transform.basis.get_column(2);
+        transparent_draws.clear();
         drawn_now.clear();
         unsigned structural_drawn = 0, skinned_drawn = 0;
         uint64_t skinned_us = 0;
@@ -1005,6 +1112,7 @@ public:
                         Array arrays = meshes->get_decoded(instance->mesh, s);
                         if (arrays.is_empty()) continue;
                         flat = meshes->get_flat(instance->mesh, s, arrays[RSE::ARRAY_VERTEX], arrays[RSE::ARRAY_TEX_UV], arrays[RSE::ARRAY_INDEX]);
+                        meshes->set_tint(instance->mesh, s, arrays[RSE::ARRAY_COLOR]); // Tint on first use
                         build_us += OS::get_singleton()->get_ticks_usec() - build_started;
                     }
                 }
@@ -1025,6 +1133,28 @@ public:
                     color.r = MIN(1.0f, color.r + glow.r);
                     color.g = MIN(1.0f, color.g + glow.g);
                     color.b = MIN(1.0f, color.b + glow.b);
+                }
+                // Vertex-color tint; channels above 1 brighten toward white.
+                if (flat) {
+                    const Color &t = flat->tint;
+                    color.r = MIN(1.0f, color.r * MIN(t.r, 1.0f) + MAX(t.r - 1.0f, 0.0f));
+                    color.g = MIN(1.0f, color.g * MIN(t.g, 1.0f) + MAX(t.g - 1.0f, 0.0f));
+                    color.b = MIN(1.0f, color.b * MIN(t.b, 1.0f) + MAX(t.b - 1.0f, 0.0f));
+                    color.a *= t.a;
+                }
+                // Transparent surfaces wait for the sorted pass.
+                bool transparent = color.a < 0.99f || (tex.get_type() == Variant::RID && textures->texture_has_alpha(tex));
+                if (transparent && !bones && flat && flat->gpu) {
+                    TransparentDraw deferred;
+                    deferred.mesh = flat->gpu;
+                    deferred.texture = gpu;
+                    memcpy(deferred.matrix, matrix, sizeof(matrix));
+                    deferred.color = gxm_color(color);
+                    deferred.count = flat->count;
+                    deferred.depth = (instance->world_bounds.get_center() - eye).dot(view_forward);
+                    transparent_draws.push_back(deferred);
+                    attempted += flat->count / 3;
+                    continue;
                 }
                 if (!bones) {
                     if (flat && flat->gpu) {
@@ -1125,6 +1255,20 @@ public:
                 skinned_drawn++;
                 skinned_us += OS::get_singleton()->get_ticks_usec() - skin_started;
             }
+        }
+        // Transparent pass, far to near, depth-tested but not depth-written.
+        unsigned transparent_drawn = 0;
+        if (transparent_draws.size()) {
+            transparent_draws.sort_custom<TransparentDraw::Sort>();
+            vita_gxm_depth_write(0);
+            for (uint32_t i = 0; i < transparent_draws.size(); i++) {
+                const TransparentDraw &d = transparent_draws[i];
+                if (vita_gxm_mesh_draw(d.mesh, d.texture, d.matrix, d.color)) {
+                    triangles += d.count / 3;
+                    transparent_drawn++;
+                }
+            }
+            vita_gxm_depth_write(1);
         }
         // Decals as textured quads on their projection plane (the box's local
         // XZ plane through its center), blended over the geometry already
@@ -1229,6 +1373,9 @@ public:
             lit_cache.clear();
         }
         vita_gxm_scene3d_end();
+        vita_gxm_tiltshift_resolve(float(settings->get_setting("rendering/vita/tilt_shift_top", 0.42f)), // Tilt-shift resolve
+                float(settings->get_setting("rendering/vita/tilt_shift_bottom", 0.86f)),
+                float(settings->get_setting("rendering/vita/tilt_shift_strength", 1.0f)));
         vita_gxm_clip(0, 0, 0, 960, 544);
         uint64_t submit_us = OS::get_singleton()->get_ticks_usec() - started;
         bool budget_reached = drawn_now.size() < draw_candidates.size();
