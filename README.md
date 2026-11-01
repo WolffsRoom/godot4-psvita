@@ -33,9 +33,7 @@
 <details open>
 <summary><b>Overview and Features</b></summary>
 
-- [Default Game Loading Screen](#default-game-loading-screen)
 - [What This Project Is](#what-this-project-is)
-- [What's New in v0.2](#whats-new-in-v02)
 - [Windows Editor with PS Vita Export](#windows-editor-with-ps-vita-export)
 - [LiveArea Template Selection with Previews](#livearea-template-selection-with-previews)
 - [PS Vita Trophies (In Development)](#ps-vita-trophies-in-development)
