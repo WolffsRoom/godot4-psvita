@@ -3,18 +3,22 @@
  * Implements the same vita_gxm_* contract as gxm_bridge.c, so libgodot.so and
  * gxm_canvas_vita.inc stay byte-for-byte identical: only eboot.bin changes.
  * The goal is a fair performance comparison between libvita2d/GXM and VitaGL
- * for the 2D canvas, not a replacement of the native path.
+ * for the 2D canvas and the 3D prototype, not a replacement of the native
+ * path.
  *
  * Godot's GLES3 shaders are NOT used. Two tiny GLSL ES 1.00 programs (colour
  * and textured+tint), compiled once at init by VitaGL's runtime compiler,
- * draw the CPU-transformed canvas vertices. This needs libshacccg.suprx on
+ * draw the canvas vertices and the 3D meshes with the matrix the engine
+ * passes, exactly like the libvita2d programs do in the native bridge. This needs libshacccg.suprx on
  * the console, like the earlier VitaGL probes; the native path does not.
  *
- * Scope: canvas 2D (quads, textures, clip, SubViewport targets, boot splash).
- * The GXM 3D prototype entry points are stubs that report "unavailable"; a
- * package with gxm3d.cfg is refused at init instead of rendering wrongly.
+ * Scope: canvas 2D (quads, textures, clip, SubViewport targets, boot splash)
+ * and the 3D prototype (resident meshes as VBOs, CPU triangles, depth, the
+ * 2x multiply vertex-lighting pass, additive glows). Tilt-shift is not
+ * implemented: begin_offscreen reports it unavailable and the engine renders
+ * a plain frame, so benchmarks must keep rendering/vita/tilt_shift off.
  *
- * Optional app0:vgl2d.cfg lines (key=value), all integers:
+ * Optional app0:vitagl.cfg lines (key=value), all integers:
  *   ram_threshold_mb, cdram_threshold_mb, phycont_threshold_mb,
  *   circular_pool_mb, target_flip (1 = GL bottom-up FBO convention).
  */
@@ -35,8 +39,28 @@ typedef struct VGLTexture {
     size_t bytes;
 } VGLTexture;
 
-typedef struct { float x, y; uint32_t color; } VGLColorVertex;
-typedef struct { float x, y, u, v; } VGLTexVertex;
+/* Same layouts as vita2d_color_vertex / vita2d_texture_vertex. */
+typedef struct { float x, y, z; uint32_t color; } VGLColorVertex;
+typedef struct { float x, y, z, u, v; } VGLTexVertex;
+
+/* Resident 3D geometry: one VBO per mesh. VitaGL keeps the memory alive
+ * until the GPU no longer reads it, so deletes and re-uploads are safe. */
+#define MESH_BUDGET_BYTES (24u * 1024u * 1024u) /* gxm_bridge.c arena size */
+typedef struct VGLMesh {
+    GLuint vbo;
+    unsigned count;
+    unsigned bytes;
+    float *xyz; /* light meshes only: positions kept to rebuild colours */
+    struct VGLMesh *next;
+} VGLMesh;
+static VGLMesh *meshes;
+static unsigned mesh_bytes;
+static int scene3d_enabled;
+static int scene3d_drawing;
+static int depth_write = 1;
+static float mvp3d[16];
+static GLuint white_texture;
+void vita_gxm_scene3d_end(void);
 
 static int initialized;
 static int context_ready; /* vglInit* ran: GXM stays owned by VitaGL */
@@ -49,7 +73,7 @@ static unsigned texture_upload_count;
 static unsigned memory_frame;
 static int blend_add;
 
-/* Configuration (app0:vgl2d.cfg). Defaults keep headroom for thread stacks
+/* Configuration (app0:vitagl.cfg). Defaults keep headroom for thread stacks
  * and kernel allocations made after the renderer starts: VitaGL otherwise
  * claims every free byte of each pool at init. */
 static int cfg_ram_threshold_mb = 32;
@@ -102,7 +126,7 @@ static void log_free_memory(const char *stage) {
 }
 
 static void read_config(void) {
-    FILE *f = fopen("app0:vgl2d.cfg", "rb");
+    FILE *f = fopen("app0:vitagl.cfg", "rb");
     if (!f) return;
     char line[96];
     while (fgets(line, sizeof(line), f)) {
@@ -119,7 +143,7 @@ static void read_config(void) {
 }
 
 /* Column-major orthographic matrix for the 960x544 canvas space. The
- * display uses y down. Without HAVE_UNFLIPPED_FBOS, VitaGL keeps GL's
+ * display uses y down; canvas vertices carry z=0.5 like libvita2d. Without HAVE_UNFLIPPED_FBOS, VitaGL keeps GL's
  * bottom-up convention for framebuffer objects, so targets are flipped to
  * keep v=0 on the top row, which is what the canvas samples. */
 static void ortho(float *m, int flip_y) {
@@ -134,12 +158,12 @@ static void ortho(float *m, int flip_y) {
 
 static const char *color_vs =
     "uniform mat4 u_mvp;\n"
-    "attribute vec2 a_position;\n"
+    "attribute vec3 a_position;\n"
     "attribute vec4 a_color;\n"
     "varying vec4 v_color;\n"
     "void main() {\n"
     "  v_color = a_color;\n"
-    "  gl_Position = u_mvp * vec4(a_position, 0.5, 1.0);\n"
+    "  gl_Position = u_mvp * vec4(a_position, 1.0);\n"
     "}\n";
 static const char *color_fs =
     "precision mediump float;\n"
@@ -149,12 +173,12 @@ static const char *color_fs =
     "}\n";
 static const char *texture_vs =
     "uniform mat4 u_mvp;\n"
-    "attribute vec2 a_position;\n"
+    "attribute vec3 a_position;\n"
     "attribute vec2 a_uv;\n"
     "varying vec2 v_uv;\n"
     "void main() {\n"
     "  v_uv = a_uv;\n"
-    "  gl_Position = u_mvp * vec4(a_position, 0.5, 1.0);\n"
+    "  gl_Position = u_mvp * vec4(a_position, 1.0);\n"
     "}\n";
 static const char *texture_fs =
     "precision mediump float;\n"
@@ -175,7 +199,7 @@ static GLuint compile_stage(GLenum type, const char *source, const char *tag) {
         char info[256] = { 0 };
         GLsizei n = 0;
         glGetShaderInfoLog(shader, sizeof(info) - 1, &n, info);
-        fprintf(stderr, "[vgl2d] %s compile failed: %s\n", tag, n > 0 ? info : "(no log)");
+        fprintf(stderr, "[vitagl] %s compile failed: %s\n", tag, n > 0 ? info : "(no log)");
         fflush(stderr);
         glDeleteShader(shader);
         return 0;
@@ -197,7 +221,7 @@ static GLuint build_program(const char *vs, const char *fs, const char *attr1, c
     glLinkProgram(program);
     GLint linked = 0;
     glGetProgramiv(program, GL_LINK_STATUS, &linked);
-    fprintf(stderr, "[vgl2d] program %s link=%d\n", tag, linked);
+    fprintf(stderr, "[vitagl] program %s link=%d\n", tag, linked);
     fflush(stderr);
     if (!linked) {
         glDeleteProgram(program);
@@ -250,12 +274,12 @@ static void flush_batch(void) {
                 (float)((batch_color >> 16) & 0xff) / 255.0f, (float)(batch_color >> 24) / 255.0f,
             };
             glUniform4fv(texture_tint_loc, 1, tint);
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(VGLTexVertex), staging);
-            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(VGLTexVertex), staging + 2 * sizeof(float));
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VGLTexVertex), staging);
+            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(VGLTexVertex), staging + 3 * sizeof(float));
         } else {
             use_program(color_program);
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(VGLColorVertex), staging);
-            glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(VGLColorVertex), staging + 2 * sizeof(float));
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VGLColorVertex), staging);
+            glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(VGLColorVertex), staging + 3 * sizeof(float));
         }
         /* Client-side arrays: VitaGL copies them into its circular pool. */
         glDrawArrays(GL_TRIANGLES, 0, (GLsizei)batch_count);
@@ -289,12 +313,8 @@ static void *batch_reserve(int kind, VGLTexture *t, int linear, uint32_t color) 
 int vita_gxm_init(void) {
     if (initialized) return 1;
     FILE *scene_file = fopen("app0:gxm3d.cfg", "rb");
-    if (scene_file) {
-        fclose(scene_file);
-        fprintf(stderr, "[vgl2d] gxm3d.cfg present: the VitaGL A/B backend is 2D only; refusing to start\n");
-        fflush(stderr);
-        return 0;
-    }
+    scene3d_enabled = scene_file != NULL;
+    if (scene_file) fclose(scene_file);
     texture_rgba4444 = 0;
     FILE *format_file = fopen("app0:gxm_texture_format.cfg", "rb");
     if (format_file) {
@@ -322,7 +342,7 @@ programs:
     texture_program = build_program(texture_vs, texture_fs, "a_uv", "texture");
     if (!color_program || !texture_program) {
         /* GXM is already owned by VitaGL: libvita2d cannot take over now. */
-        fprintf(stderr, "[vgl2d] shader setup failed (is libshacccg.suprx installed?)\n");
+        fprintf(stderr, "[vitagl] shader setup failed (is libshacccg.suprx installed?)\n");
         fflush(stderr);
         free(staging);
         staging = NULL;
@@ -344,11 +364,13 @@ programs:
     glEnableVertexAttribArray(1);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_FALSE);
     glEnable(GL_BLEND);
     apply_blend();
     initialized = 1;
-    fprintf(stderr, "[vgl2d] VitaGL canvas backend ready texture_format=%s ram_threshold_mb=%d cdram_threshold_mb=%d phycont_threshold_mb=%d circular_pool_mb=%d target_flip=%d\n",
-            texture_rgba4444 ? "RGBA4444" : "RGBA8888", cfg_ram_threshold_mb, cfg_cdram_threshold_mb,
+    fprintf(stderr, "[vitagl] VitaGL canvas backend ready scene3d=%d texture_format=%s ram_threshold_mb=%d cdram_threshold_mb=%d phycont_threshold_mb=%d circular_pool_mb=%d target_flip=%d\n",
+            scene3d_enabled, texture_rgba4444 ? "RGBA4444" : "RGBA8888", cfg_ram_threshold_mb, cfg_cdram_threshold_mb,
             cfg_phycont_threshold_mb, cfg_circular_pool_mb, cfg_target_flip);
     fflush(stderr);
     log_free_memory("renderer_init");
@@ -386,7 +408,7 @@ void *vita_gxm_texture_create(int width, int height, const uint8_t *rgba) {
     texture_bytes += bytes;
     texture_upload_count++;
     if (texture_upload_count <= 16 || texture_upload_count % 128 == 0) {
-        fprintf(stderr, "[vgl2d] texture uploads=%u last=%dx%d format=%s allocation=%lu budget=%lu\n", texture_upload_count, width, height,
+        fprintf(stderr, "[vitagl] texture uploads=%u last=%dx%d format=%s allocation=%lu budget=%lu\n", texture_upload_count, width, height,
                 texture_rgba4444 ? "RGBA4444" : "RGBA8888", (unsigned long)bytes, (unsigned long)texture_bytes);
         fflush(stderr);
     }
@@ -420,7 +442,7 @@ void vita_gxm_texture_quad(void *texture, const float *xy, const float *uv, uint
     VGLTexVertex *v = batch_reserve(BATCH_TEXTURED, t, linear ? 1 : 0, color);
     for (int i = 0; i < 6; i++) {
         int k = corners[i];
-        v[i].x = xy[2 * k]; v[i].y = xy[2 * k + 1];
+        v[i].x = xy[2 * k]; v[i].y = xy[2 * k + 1]; v[i].z = 0.5f;
         v[i].u = uv[2 * k]; v[i].v = uv[2 * k + 1];
     }
 }
@@ -431,14 +453,22 @@ void vita_gxm_quad(const float *xy, uint32_t color) {
     for (int i = 0; i < 6; i++) {
         v[i].x = xy[corners[i] * 2];
         v[i].y = xy[corners[i] * 2 + 1];
+        v[i].z = 0.5f;
         v[i].color = color;
     }
 }
 
-static void clear_to(uint32_t color) {
+static void clear_to(uint32_t color, int depth) {
     glClearColor((float)(color & 0xff) / 255.0f, (float)((color >> 8) & 0xff) / 255.0f,
             (float)((color >> 16) & 0xff) / 255.0f, (float)(color >> 24) / 255.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    if (depth) {
+        glDepthMask(GL_TRUE);
+        glClearDepthf(1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glDepthMask(GL_FALSE);
+    } else {
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
 }
 
 void vita_gxm_begin(uint32_t color) {
@@ -450,7 +480,7 @@ void vita_gxm_begin(uint32_t color) {
     glDisable(GL_SCISSOR_TEST);
     clip_enabled_cache = 0;
     set_mvp(display_mvp);
-    clear_to(color);
+    clear_to(color, scene3d_enabled);
     drawing = 1;
 }
 
@@ -478,6 +508,7 @@ void vita_gxm_clip(int enabled, int x, int y, int width, int height) {
 void vita_gxm_end(int present) {
     if (!drawing) return;
     flush_batch();
+    vita_gxm_scene3d_end();
     glDisable(GL_SCISSOR_TEST);
     clip_enabled_cache = 0;
     drawing = 0;
@@ -491,7 +522,7 @@ void vita_gxm_end(int present) {
     perf_draws += stat_draws; perf_quads += stat_quads; perf_clips += stat_clips;
     perf_swap += last_swap_us; perf_submit += stat_submit_us;
     if (++perf_frames >= PERF_FRAMES) {
-        fprintf(stderr, "[vgl2d-perf] frames=%u avg_frame_us=%llu fps=%.1f draws=%llu quads=%llu clips=%llu submit_us=%llu swap_us=%llu targets=%u\n",
+        fprintf(stderr, "[vitagl-perf] frames=%u avg_frame_us=%llu fps=%.1f draws=%llu quads=%llu clips=%llu submit_us=%llu swap_us=%llu targets=%u\n",
                 perf_frames, perf_frame_us / perf_frames, perf_frame_us ? 1000000.0 * perf_frames / (double)perf_frame_us : 0.0,
                 perf_draws / perf_frames, perf_quads / perf_frames, perf_clips / perf_frames,
                 perf_submit / perf_frames, perf_swap / perf_frames, stat_targets);
@@ -523,7 +554,7 @@ void *vita_gxm_target_create(int width, int height) {
     /* Creation may happen while another scene is open: restore it. */
     glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
     if (status != GL_FRAMEBUFFER_COMPLETE) {
-        fprintf(stderr, "[vgl2d] render target %dx%d incomplete status=0x%04x\n", width, height, (unsigned)status);
+        fprintf(stderr, "[vitagl] render target %dx%d incomplete status=0x%04x\n", width, height, (unsigned)status);
         fflush(stderr);
         glDeleteFramebuffers(1, &t->fbo);
         glDeleteTextures(1, &t->id);
@@ -545,7 +576,7 @@ int vita_gxm_target_begin(void *target, uint32_t clear_color) {
     glViewport(0, 0, t->width, t->height);
     glDisable(GL_SCISSOR_TEST);
     set_mvp(target_mvp);
-    clear_to(clear_color);
+    clear_to(clear_color, 0);
     target_drawing = 1;
     stat_targets++;
     return 1;
@@ -586,36 +617,230 @@ void vita_gxm_tiltshift_resolve(float top, float bottom, float strength) {
     (void)top; (void)bottom; (void)strength;
 }
 
-/* GXM 3D prototype entry points: unavailable in this backend. */
+/* 3D prototype. Mirrors gxm_bridge.c. As there, draws/submit_us in the perf
+ * line cover canvas batches only; compare 3D with the engine's [gxm3d]
+ * cpu_submit_us, which both bridges report the same way. Here too: the canvas batch is flushed, depth
+ * test LEQUAL with writes on, culling off, the engine's MVP replaces the
+ * canvas matrix until vita_gxm_scene3d_end(). */
+static void begin_scene3d(void) {
+    if (scene3d_drawing) return;
+    flush_batch();
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(depth_write ? GL_TRUE : GL_FALSE);
+    scene3d_drawing = 1;
+}
+
+void vita_gxm_scene3d_end(void) {
+    if (!scene3d_drawing) return;
+    flush_batch();
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    depth_write = 1;
+    set_mvp(target_drawing ? target_mvp : display_mvp);
+    scene3d_drawing = 0;
+}
+
+static void set_mvp3d(const float *mvp) {
+    memcpy(mvp3d, mvp, sizeof(mvp3d));
+    set_mvp(mvp3d);
+}
+
+static void bind_texture_3d(GLuint id, VGLTexture *t, uint32_t color) {
+    use_program(texture_program);
+    glBindTexture(GL_TEXTURE_2D, id);
+    if (t && t->filter != 0) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        t->filter = 0;
+    }
+    float tint[4] = {
+        (float)(color & 0xff) / 255.0f, (float)((color >> 8) & 0xff) / 255.0f,
+        (float)((color >> 16) & 0xff) / 255.0f, (float)(color >> 24) / 255.0f,
+    };
+    glUniform4fv(texture_tint_loc, 1, tint);
+}
+
+static void draw_split(unsigned count) {
+    /* Same 65532-vertex split the native bridge uses for vita2d indices. */
+    for (unsigned offset = 0; offset < count; offset += 65532u) {
+        unsigned batch = count - offset < 65532u ? count - offset : 65532u;
+        glDrawArrays(GL_TRIANGLES, (GLint)offset, (GLsizei)batch);
+    }
+}
+
 int vita_gxm_triangles3d(void *texture, const float *xyz, const float *uv, unsigned count, const float *mvp, uint32_t color) {
-    (void)texture; (void)xyz; (void)uv; (void)count; (void)mvp; (void)color;
-    return 0;
+    if (!drawing || !scene3d_enabled || !xyz || !mvp || !count || count > 3072 || count % 3 || (texture && !uv)) return 0;
+    begin_scene3d();
+    flush_batch();
+    set_mvp3d(mvp);
+    if (texture) {
+        VGLTexVertex *v = (VGLTexVertex *)staging;
+        for (unsigned i = 0; i < count; i++) {
+            v[i].x = xyz[i * 3]; v[i].y = xyz[i * 3 + 1]; v[i].z = xyz[i * 3 + 2];
+            v[i].u = uv[i * 2]; v[i].v = uv[i * 2 + 1];
+        }
+        VGLTexture *t = texture;
+        bind_texture_3d(t->id, t, color);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VGLTexVertex), staging);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(VGLTexVertex), staging + 3 * sizeof(float));
+    } else {
+        VGLColorVertex *v = (VGLColorVertex *)staging;
+        for (unsigned i = 0; i < count; i++) {
+            v[i].x = xyz[i * 3]; v[i].y = xyz[i * 3 + 1]; v[i].z = xyz[i * 3 + 2]; v[i].color = color;
+        }
+        use_program(color_program);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VGLColorVertex), staging);
+        glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(VGLColorVertex), staging + 3 * sizeof(float));
+    }
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)count);
+    return 1;
 }
-void vita_gxm_scene3d_end(void) {}
+
+static VGLMesh *mesh_alloc(unsigned count, unsigned vertex_size) {
+    unsigned bytes = (count * vertex_size + 15u) & ~15u;
+    if (mesh_bytes + bytes > MESH_BUDGET_BYTES) return NULL;
+    VGLMesh *mesh = calloc(1, sizeof(*mesh));
+    if (!mesh) return NULL;
+    glGenBuffers(1, &mesh->vbo);
+    if (!mesh->vbo) { free(mesh); return NULL; }
+    mesh->count = count;
+    mesh->bytes = bytes;
+    mesh->next = meshes;
+    meshes = mesh;
+    mesh_bytes += bytes;
+    return mesh;
+}
+
+static void upload_textured(VGLMesh *mesh, const float *xyz, const float *uv) {
+    VGLTexVertex *v = malloc(mesh->count * sizeof(*v));
+    if (!v) return;
+    for (unsigned i = 0; i < mesh->count; i++) {
+        v[i].x = xyz[i * 3]; v[i].y = xyz[i * 3 + 1]; v[i].z = xyz[i * 3 + 2];
+        v[i].u = uv ? uv[i * 2] : 0.0f; v[i].v = uv ? uv[i * 2 + 1] : 0.0f;
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(mesh->count * sizeof(*v)), v, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    free(v);
+}
+
 void *vita_gxm_mesh_create(const float *xyz, const float *uv, unsigned count) {
-    (void)xyz; (void)uv; (void)count;
-    return NULL;
+    if (!initialized || !scene3d_enabled || !xyz || !count || count % 3) return NULL;
+    VGLMesh *mesh = mesh_alloc(count, sizeof(VGLTexVertex));
+    if (!mesh) return NULL;
+    upload_textured(mesh, xyz, uv);
+    return mesh;
 }
-int vita_gxm_mesh_draw(void *mesh, void *texture, const float *mvp, uint32_t color) {
-    (void)mesh; (void)texture; (void)mvp; (void)color;
-    return 0;
+
+int vita_gxm_mesh_draw(void *handle, void *texture, const float *mvp, uint32_t color) {
+    VGLMesh *mesh = handle;
+    if (!drawing || !scene3d_enabled || !mesh || !mvp) return 0;
+    if (!texture && !white_texture) {
+        uint8_t white[8 * 8 * 4];
+        memset(white, 0xff, sizeof(white));
+        glGenTextures(1, &white_texture);
+        glBindTexture(GL_TEXTURE_2D, white_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 8, 8, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        if (!white_texture) return 0;
+    }
+    begin_scene3d();
+    set_mvp3d(mvp);
+    VGLTexture *t = texture;
+    bind_texture_3d(t ? t->id : white_texture, t, color);
+    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VGLTexVertex), (const void *)0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(VGLTexVertex), (const void *)(3 * sizeof(float)));
+    draw_split(mesh->count);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    return 1;
 }
-int vita_gxm_mesh_update(void *mesh, const float *xyz, const float *uv, unsigned count) {
-    (void)mesh; (void)xyz; (void)uv; (void)count;
-    return 0;
+
+/* Re-uploads in place (same vertex count), like the native arena rewrite.
+ * glBufferData gives the VBO new memory; the old copy is released after
+ * the GPU finishes with it. */
+int vita_gxm_mesh_update(void *handle, const float *xyz, const float *uv, unsigned count) {
+    VGLMesh *mesh = handle;
+    if (!mesh || !xyz || count != mesh->count) return 0;
+    upload_textured(mesh, xyz, uv);
+    return 1;
 }
-void vita_gxm_mesh_reset(void) {}
-unsigned vita_gxm_mesh_arena_used(void) { return 0; }
-void vita_gxm_depth_write(int enabled) { (void)enabled; }
-int vita_gxm_vertex_lighting_available(void) { return 0; }
+
+void vita_gxm_mesh_reset(void) {
+    while (meshes) {
+        VGLMesh *mesh = meshes;
+        meshes = mesh->next;
+        glDeleteBuffers(1, &mesh->vbo);
+        free(mesh->xyz);
+        free(mesh);
+    }
+    mesh_bytes = 0;
+}
+
+unsigned vita_gxm_mesh_arena_used(void) {
+    return mesh_bytes;
+}
+
+void vita_gxm_depth_write(int enabled) {
+    if (!drawing || !scene3d_enabled) return;
+    begin_scene3d();
+    flush_batch();
+    depth_write = enabled ? 1 : 0;
+    glDepthMask(depth_write ? GL_TRUE : GL_FALSE);
+}
+
+int vita_gxm_vertex_lighting_available(void) {
+    return initialized && scene3d_enabled;
+}
+
 void *vita_gxm_light_mesh_create(const float *xyz, unsigned count) {
-    (void)xyz; (void)count;
-    return NULL;
+    if (!initialized || !scene3d_enabled || !xyz || !count || count % 3) return NULL;
+    VGLMesh *mesh = mesh_alloc(count, sizeof(VGLColorVertex));
+    if (!mesh) return NULL;
+    mesh->xyz = malloc((size_t)count * 3 * sizeof(float));
+    if (!mesh->xyz) return NULL; /* Stays on the list; freed by mesh_reset. */
+    memcpy(mesh->xyz, xyz, (size_t)count * 3 * sizeof(float));
+    uint32_t *grey = malloc(count * sizeof(uint32_t));
+    if (!grey) return NULL;
+    for (unsigned i = 0; i < count; i++) grey[i] = 0xff808080u;
+    vita_gxm_light_mesh_set_colors(mesh, grey);
+    free(grey);
+    return mesh;
 }
-void vita_gxm_light_mesh_set_colors(void *mesh, const uint32_t *colors) { (void)mesh; (void)colors; }
-int vita_gxm_light_mesh_draw(void *mesh, const float *mvp) {
-    (void)mesh; (void)mvp;
-    return 0;
+
+/* The native bridge rewrites colours in GPU memory; VitaGL re-uploads. */
+void vita_gxm_light_mesh_set_colors(void *handle, const uint32_t *colors) {
+    VGLMesh *mesh = handle;
+    if (!mesh || !mesh->xyz || !colors) return;
+    VGLColorVertex *v = malloc(mesh->count * sizeof(*v));
+    if (!v) return;
+    for (unsigned i = 0; i < mesh->count; i++) {
+        v[i].x = mesh->xyz[i * 3]; v[i].y = mesh->xyz[i * 3 + 1]; v[i].z = mesh->xyz[i * 3 + 2];
+        v[i].color = colors[i];
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(mesh->count * sizeof(*v)), v, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    free(v);
+}
+
+/* 2x multiply over the base pass: colour = dst*src + src*dst, alpha kept. */
+int vita_gxm_light_mesh_draw(void *handle, const float *mvp) {
+    VGLMesh *mesh = handle;
+    if (!drawing || !mesh || !mesh->xyz || !mvp) return 0;
+    begin_scene3d();
+    set_mvp3d(mvp);
+    use_program(color_program);
+    glBlendFuncSeparate(GL_DST_COLOR, GL_SRC_COLOR, GL_ZERO, GL_ONE);
+    glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VGLColorVertex), (const void *)0);
+    glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(VGLColorVertex), (const void *)(3 * sizeof(float)));
+    draw_split(mesh->count);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    apply_blend();
+    return 1;
 }
 
 void vita_gxm_finish(void) {
@@ -626,6 +851,9 @@ void vita_gxm_finish(void) {
     if (color_program) glDeleteProgram(color_program);
     if (texture_program) glDeleteProgram(texture_program);
     color_program = texture_program = 0;
+    vita_gxm_mesh_reset();
+    if (white_texture) glDeleteTextures(1, &white_texture);
+    white_texture = 0;
     free(staging);
     staging = NULL;
     /* This VitaGL build has no public teardown; the context lives on. */

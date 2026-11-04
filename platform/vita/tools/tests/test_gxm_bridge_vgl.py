@@ -3,7 +3,8 @@
 
 Covers the A/B contract with gxm_bridge.c: batching, vertex layout, colour
 and tint conversion, scissor origin, render-target orientation, RGBA4444
-packing, deferred texture release ordering and single VitaGL init. It does
+packing, deferred texture release ordering, single VitaGL init and the 3D
+path (VBO meshes, depth state, CPU triangles, the 2x multiply light pass). It does
 not prove anything about the console: VitaGL, the shader compiler and the
 GPU are simulated.
 """
@@ -65,6 +66,14 @@ typedef void GLvoid;
 #define GL_FRAGMENT_SHADER 0x8B30
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
+#define GL_DEPTH_BUFFER_BIT 0x0100
+#define GL_LEQUAL 0x0203
+#define GL_DST_COLOR 0x0306
+#define GL_SRC_COLOR 0x0300
+#define GL_ZERO 0
+#define GL_STATIC_DRAW 0x88E4
+#define GL_DYNAMIC_DRAW 0x88E8
+typedef long GLsizeiptr;
 #define SCE_GXM_MULTISAMPLE_NONE 0
 #define SCE_GXM_MULTISAMPLE_4X 2
 typedef int SceGxmMultisampleMode;
@@ -117,6 +126,13 @@ void glScissor(GLint, GLint, GLsizei, GLsizei);
 void glClearColor(GLfloat, GLfloat, GLfloat, GLfloat);
 void glClear(GLbitfield);
 void glFinish(void);
+void glDepthFunc(GLenum);
+void glDepthMask(GLboolean);
+void glClearDepthf(GLfloat);
+void glBlendFuncSeparate(GLenum, GLenum, GLenum, GLenum);
+void glGenBuffers(GLsizei, GLuint *);
+void glDeleteBuffers(GLsizei, const GLuint *);
+void glBufferData(GLenum, GLsizeiptr, const void *, GLenum);
 '''
 
 harness = r'''
@@ -147,6 +163,11 @@ static int vsync = -1;
 static unsigned char drawn[4096];
 static size_t drawn_bytes;
 static GLuint drawn_texture, drawn_program;
+static GLuint bound_buffer, drawn_buffer;
+static int depth_test, depth_mask = 1, depth_func, clears_with_depth, buffers_alive, drawn_first;
+static unsigned char vbo_data[8][4096];
+static size_t vbo_size[8];
+static GLenum blend_src_alpha, blend_dst_alpha;
 
 int sceKernelGetFreeMemorySize(SceKernelFreeMemorySizeInfo *i) { memset(i, 0, sizeof(*i)); return 0; }
 SceUInt64 sceKernelGetProcessTimeWide(void) { static SceUInt64 t; return t += 10; }
@@ -186,30 +207,42 @@ void glUniform1i(GLint l, GLint v) { assert(l == 3 && v == 0); }
 void glUniform4fv(GLint l, GLsizei n, const GLfloat *v) { assert(l == 2 && n == 1); memcpy(last_tint, v, sizeof(last_tint)); }
 void glUniformMatrix4fv(GLint l, GLsizei n, GLboolean t, const GLfloat *v) { assert(l == 1 && n == 1 && !t); memcpy(last_mvp, v, sizeof(last_mvp)); }
 void glActiveTexture(GLenum t) { assert(t == GL_TEXTURE0); }
-void glBindBuffer(GLenum t, GLuint b) { assert(t == GL_ARRAY_BUFFER && b == 0); }
+void glBindBuffer(GLenum t, GLuint b) { assert(t == GL_ARRAY_BUFFER); bound_buffer = b; }
+void glGenBuffers(GLsizei n, GLuint *b) { assert(n == 1); static GLuint next = 1; *b = next++; assert(*b < 8); buffers_alive++; }
+void glDeleteBuffers(GLsizei n, const GLuint *b) { assert(n == 1 && *b); buffers_alive--; }
+void glBufferData(GLenum t, GLsizeiptr n, const void *d, GLenum u) {
+    assert(t == GL_ARRAY_BUFFER && bound_buffer && n > 0 && (size_t)n <= sizeof(vbo_data[0]) && d && (u == GL_STATIC_DRAW || u == GL_DYNAMIC_DRAW));
+    memcpy(vbo_data[bound_buffer], d, (size_t)n); vbo_size[bound_buffer] = (size_t)n;
+}
+void glDepthFunc(GLenum f) { depth_func = f; }
+void glDepthMask(GLboolean m) { depth_mask = m; }
+void glClearDepthf(GLfloat d) { assert(d == 1.0f); }
+void glBlendFuncSeparate(GLenum a, GLenum b, GLenum c, GLenum d) { blend_src = a; blend_dst = b; blend_src_alpha = c; blend_dst_alpha = d; }
 void glEnableVertexAttribArray(GLuint i) { assert(i < 2); }
 void glVertexAttribPointer(GLuint i, GLint s, GLenum t, GLboolean n, GLsizei st, const void *p) {
     assert(i < 2); attrib_size[i] = s; attrib_type[i] = t; attrib_norm[i] = n; attrib_stride[i] = st; attrib_ptr[i] = p;
 }
 void glDrawArrays(GLenum m, GLint f, GLsizei c) {
-    assert(m == GL_TRIANGLES && f == 0 && c > 0 && c % 6 == 0);
-    draws++; last_count = c;
+    assert(m == GL_TRIANGLES && f >= 0 && c > 0 && c % 3 == 0);
+    draws++; last_count = c; drawn_first = f; drawn_buffer = bound_buffer;
     drawn_bytes = (size_t)c * attrib_stride[0];
     assert(drawn_bytes <= sizeof(drawn));
-    memcpy(drawn, attrib_ptr[0], drawn_bytes); /* VitaGL copies client arrays here too. */
+    if (bound_buffer) memcpy(drawn, vbo_data[bound_buffer] + (size_t)attrib_ptr[0], drawn_bytes);
+    else memcpy(drawn, attrib_ptr[0], drawn_bytes); /* VitaGL copies client arrays here too. */
     drawn_texture = bound_texture; drawn_program = program_in_use;
 }
-void glEnable(GLenum c) { if (c == GL_SCISSOR_TEST) scissor_on = 1; }
-void glDisable(GLenum c) { if (c == GL_SCISSOR_TEST) scissor_on = 0; }
+void glEnable(GLenum c) { if (c == GL_SCISSOR_TEST) scissor_on = 1; if (c == GL_DEPTH_TEST) depth_test = 1; }
+void glDisable(GLenum c) { if (c == GL_SCISSOR_TEST) scissor_on = 0; if (c == GL_DEPTH_TEST) depth_test = 0; }
 void glBlendFunc(GLenum s, GLenum d) { blend_src = s; blend_dst = d; }
 void glGenTextures(GLsizei n, GLuint *t) { assert(n == 1); *t = next_id++; }
 void glDeleteTextures(GLsizei n, const GLuint *t) { assert(n == 1 && *t); deleted_textures++; }
 void glBindTexture(GLenum t, GLuint id) { assert(t == GL_TEXTURE_2D); bound_texture = id; }
 void glPixelStorei(GLenum p, GLint v) { assert(p == GL_UNPACK_ALIGNMENT && v == 1); }
 void glTexImage2D(GLenum t, GLint l, GLint i, GLsizei w, GLsizei h, GLint b, GLenum f, GLenum ty, const void *d) {
+    (void)d;
     assert(t == GL_TEXTURE_2D && l == 0 && i == GL_RGBA && w > 0 && h > 0 && b == 0 && f == GL_RGBA);
     upload_type = ty;
-    if (ty == GL_UNSIGNED_SHORT_4_4_4_4) memcpy(upload_4444, d, sizeof(upload_4444));
+    if (ty == GL_UNSIGNED_SHORT_4_4_4_4 && d) memcpy(upload_4444, d, sizeof(upload_4444));
 }
 void glTexParameteri(GLenum t, GLenum p, GLint v) {
     assert(t == GL_TEXTURE_2D && bound_texture < 64);
@@ -226,18 +259,17 @@ GLenum glCheckFramebufferStatus(GLenum t) { (void)t; return GL_FRAMEBUFFER_COMPL
 void glViewport(GLint x, GLint y, GLsizei w, GLsizei h) { viewport[0] = x; viewport[1] = y; viewport[2] = w; viewport[3] = h; }
 void glScissor(GLint x, GLint y, GLsizei w, GLsizei h) { scissor[0] = x; scissor[1] = y; scissor[2] = w; scissor[3] = h; }
 void glClearColor(GLfloat r, GLfloat g, GLfloat b, GLfloat a) { clear_rgba[0] = r; clear_rgba[1] = g; clear_rgba[2] = b; clear_rgba[3] = a; }
-void glClear(GLbitfield m) { assert(m == GL_COLOR_BUFFER_BIT); }
+void glClear(GLbitfield m) {
+    assert(m == GL_COLOR_BUFFER_BIT || m == (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+    if (m & GL_DEPTH_BUFFER_BIT) { assert(depth_mask); clears_with_depth++; }
+}
 void glFinish(void) {}
 
 static int near(float a, float b) { return fabsf(a - b) < 1e-5f; }
 static float project_y(float y) { return last_mvp[5] * y + last_mvp[13]; }
 
 int main(void) {
-    /* A 3D package is refused before VitaGL is touched. */
-    FILE *f = fopen("app0:gxm3d.cfg", "w"); fputs("x\n", f); fclose(f);
-    assert(!vita_gxm_init() && vgl_inits == 0);
-    remove("app0:gxm3d.cfg");
-    f = fopen("app0:vgl2d.cfg", "w"); fputs("vitagl-canvas-ab-v1\nram_threshold_mb=40\ncircular_pool_mb=6\n", f); fclose(f);
+    FILE *f = fopen("app0:vitagl.cfg", "w"); fputs("vitagl-bridge-ab-v2\nram_threshold_mb=40\ncircular_pool_mb=6\n", f); fclose(f);
     f = fopen("app0:gxm_texture_format.cfg", "w"); fputs("RGBA4444\n", f); fclose(f);
     assert(vita_gxm_init());
     assert(vgl_inits == 1 && init_msaa == SCE_GXM_MULTISAMPLE_NONE);
@@ -263,21 +295,21 @@ int main(void) {
     assert(draws == 0); /* Same texture/filter/tint: still batching. */
     vita_gxm_quad(xy, 0xff4040ff); /* Kind change flushes the textured batch. */
     assert(draws == 1 && last_count == 12 && drawn_texture == tex_id && tex_filter[tex_id] == GL_LINEAR);
-    assert(attrib_size[0] == 2 && attrib_type[0] == GL_FLOAT && attrib_stride[0] == 16);
-    assert(attrib_size[1] == 2 && attrib_type[1] == GL_FLOAT && attrib_ptr[1] == attrib_ptr[0] + 8);
+    assert(attrib_size[0] == 3 && attrib_type[0] == GL_FLOAT && attrib_stride[0] == 20);
+    assert(attrib_size[1] == 2 && attrib_type[1] == GL_FLOAT && attrib_ptr[1] == attrib_ptr[0] + 12);
     const float *tv = (const float *)drawn;
-    assert(tv[0] == 80 && tv[1] == 120 && tv[2] == 0.25f && tv[3] == 0);       /* corner 0 */
-    assert(tv[8] == 240 && tv[9] == 200 && tv[10] == 0.5f && tv[11] == 1);     /* corner 2 */
-    assert(tv[20] == 80 && tv[21] == 200 && tv[22] == 0.25f && tv[23] == 1);   /* corner 3 */
+    assert(tv[0] == 80 && tv[1] == 120 && tv[2] == 0.5f && tv[3] == 0.25f && tv[4] == 0);     /* corner 0 */
+    assert(tv[10] == 240 && tv[11] == 200 && tv[13] == 0.5f && tv[14] == 1);                 /* corner 2 */
+    assert(tv[25] == 80 && tv[26] == 200 && tv[28] == 0.25f && tv[29] == 1);                 /* corner 3 */
     assert(near(last_tint[0], 1.0f) && near(last_tint[1], 0x20 / 255.0f) && near(last_tint[2], 0x40 / 255.0f) && near(last_tint[3], 0x80 / 255.0f));
     /* Display matrix: y down, top edge maps to NDC +1. */
     assert(near(project_y(0), 1.0f) && near(project_y(544), -1.0f) && near(last_mvp[0] * 960 + last_mvp[12], 1.0f));
 
     /* Clip: GL scissor origin is bottom-left; redundant clips are skipped. */
     vita_gxm_clip(1, 10, 20, 30, 40);
-    assert(draws == 2 && attrib_type[1] == GL_UNSIGNED_BYTE && attrib_norm[1] && attrib_size[1] == 4 && attrib_stride[0] == 12);
+    assert(draws == 2 && attrib_type[1] == GL_UNSIGNED_BYTE && attrib_norm[1] && attrib_size[1] == 4 && attrib_stride[0] == 16);
     const unsigned char *cv = drawn;
-    uint32_t color; memcpy(&color, cv + 8, 4); assert(color == 0xff4040ff);
+    uint32_t color; memcpy(&color, cv + 12, 4); assert(color == 0xff4040ff);
     assert(scissor_on && scissor[0] == 10 && scissor[1] == 544 - 60 && scissor[2] == 30 && scissor[3] == 40);
     vita_gxm_clip(1, 10, 20, 30, 40);
     vita_gxm_clip(1, 0, 0, 960, 544); /* Full screen == no clip. */
@@ -316,14 +348,65 @@ int main(void) {
 
     vita_gxm_blend_add(1); assert(blend_src == GL_ONE && blend_dst == GL_ONE);
     vita_gxm_blend_add(0); assert(blend_src == GL_SRC_ALPHA);
+    /* 2D-only package: no 3D, and no depth clear. */
     assert(!vita_gxm_mesh_create(xy, uv, 3) && !vita_gxm_vertex_lighting_available());
-    assert(!vita_gxm_begin_offscreen(0));
+    assert(!vita_gxm_begin_offscreen(0) && clears_with_depth == 0);
 
-    /* Teardown and re-init never call vglInit twice. */
+    /* Teardown and re-init never call vglInit twice; gxm3d.cfg enables 3D. */
     vita_gxm_finish(); vita_gxm_finish();
-    assert(vita_gxm_init() && vgl_inits == 1);
+    f = fopen("app0:gxm3d.cfg", "w"); fputs("static-mesh-prototype-v1\n", f); fclose(f);
+    assert(vita_gxm_init() && vgl_inits == 1 && vita_gxm_vertex_lighting_available());
+
+    float xyz[9] = { 0, 0, 0,  1, 0, 0,  0, 1, 0 }, tri_uv[6] = { 0, 0, 1, 0, 0, 1 };
+    float mvp[16] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0.25f, 1 };
+    void *mesh = vita_gxm_mesh_create(xyz, tri_uv, 3);
+    assert(mesh && vita_gxm_mesh_arena_used() == 64 && bound_buffer == 0);
+    assert(!vita_gxm_mesh_draw(mesh, NULL, mvp, 0xffffffff)); /* Outside a frame. */
+    vita_gxm_begin(0xff000000);
+    assert(clears_with_depth == 1 && !depth_mask);
+    vita_gxm_quad(xy, 0xffffffff); /* Pending canvas batch must go out before 3D. */
+    before = draws;
+    assert(vita_gxm_mesh_draw(mesh, NULL, mvp, 0xff00ff00));
+    assert(draws == before + 2 && drawn_buffer && depth_test && depth_mask && depth_func == GL_LEQUAL);
+    assert(attrib_ptr[0] == NULL && attrib_ptr[1] == (const unsigned char *)12 && attrib_stride[0] == 20);
+    assert(last_mvp[14] == 0.25f && near(last_tint[1], 1.0f) && near(last_tint[0], 0.0f));
+    const float *mv = (const float *)drawn;
+    assert(mv[0] == 0 && mv[5] == 1 && mv[8] == 1 && mv[11] == 1 && mv[14] == 1);
+    GLuint white = drawn_texture; assert(white && white != tex_id);
+
+    /* In-place update and CPU triangles. */
+    xyz[0] = 0.5f;
+    assert(vita_gxm_mesh_update(mesh, xyz, tri_uv, 3) && !vita_gxm_mesh_update(mesh, xyz, tri_uv, 6));
+    assert(vita_gxm_triangles3d(NULL, xyz, NULL, 3, mvp, 0xff0000ff));
+    assert(drawn_buffer == 0 && last_count == 3 && attrib_stride[0] == 16);
+    memcpy(&color, drawn + 12, 4); assert(color == 0xff0000ff);
+    assert(!vita_gxm_triangles3d(NULL, xyz, NULL, 4, mvp, 0)); /* Not whole triangles. */
+
+    /* Light pass: 2x multiply blend, then normal blend restored. */
+    void *lit = vita_gxm_light_mesh_create(xyz, 3);
+    assert(lit);
+    uint32_t colors[3] = { 0xff102030, 0xff405060, 0xff708090 };
+    vita_gxm_light_mesh_set_colors(lit, colors);
+    assert(vita_gxm_light_mesh_draw(lit, mvp));
+    assert(drawn_program != white && attrib_stride[0] == 16);
+    memcpy(&color, drawn + 16 + 12, 4); assert(color == 0xff405060);
+    assert(blend_src == GL_SRC_ALPHA && blend_dst == GL_ONE_MINUS_SRC_ALPHA);
+    assert(blend_src_alpha == GL_ZERO && blend_dst_alpha == GL_ONE);
+
+    /* Transparent pass toggles depth writes; scene end returns to 2D state. */
+    vita_gxm_depth_write(0); assert(!depth_mask);
+    vita_gxm_depth_write(1); assert(depth_mask);
+    vita_gxm_scene3d_end();
+    assert(!depth_test && !depth_mask);
+    vita_gxm_quad(xy, 0xffffffff); /* UI after 3D uses the canvas matrix again. */
+    vita_gxm_end(1);
+    assert(near(project_y(0), 1.0f) && last_count == 6);
+    assert(buffers_alive == 2);
+    vita_gxm_mesh_reset();
+    assert(buffers_alive == 0 && vita_gxm_mesh_arena_used() == 0);
     vita_gxm_finish();
-    remove("app0:vgl2d.cfg");
+    remove("app0:gxm3d.cfg");
+    remove("app0:vitagl.cfg");
     remove("app0:gxm_texture_format.cfg");
     return 0;
 }
@@ -340,5 +423,6 @@ with tempfile.TemporaryDirectory() as temp:
     subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + temp, '-I' + str(platform),
                     str(root / 'test.c'), str(platform / 'loader/gxm_bridge_vgl.c'), '-lm', '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True, cwd=temp)
-print('PASS: VitaGL bridge init/refusal, batching, vertex layout, tint/colour, scissor origin, '
-      'target orientation, RGBA4444 GL packing, batch flush before free, single vglInit')
+print('PASS: VitaGL bridge init, batching, vertex layout, tint/colour, scissor origin, '
+      'target orientation, RGBA4444 GL packing, batch flush before free, single vglInit, '
+      '3D meshes/depth/CPU triangles/light pass')

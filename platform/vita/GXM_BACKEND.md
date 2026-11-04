@@ -104,7 +104,8 @@ O projeto original declara Godot 4.7, enquanto os indices do D-pad em Godot 4.8 
 
 ## Backend VitaGL para comparação (2026-11-04)
 
-`loader/gxm_bridge_vgl.c` implementa a mesma ponte sobre VitaGL, selecionada
-por `-DVITA_VGL2D=ON` no loader, para medir A/B contra a libvita2d com o mesmo
-`libgodot.so`. Avaliação, limites e procedimento em
-[VITAGL_2D_EVALUATION.md](VITAGL_2D_EVALUATION.md). Ainda não testado no Vita.
+`loader/gxm_bridge_vgl.c` implementa a mesma ponte (2D e protótipo 3D) sobre
+VitaGL, selecionada por `-DVITA_VITAGL_BRIDGE=ON` no loader, para medir A/B
+contra a libvita2d com o mesmo `libgodot.so`. Avaliação, limites, benchmark e
+procedimento em [VITAGL_EVALUATION.md](VITAGL_EVALUATION.md). Ainda não
+testado no Vita.

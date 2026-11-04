@@ -62,7 +62,7 @@ static unsigned batch_count;
 #define PERF_FRAMES 300u
 static unsigned stat_draws, stat_quads, stat_clips, stat_targets;
 static unsigned long long perf_draws, perf_quads, perf_clips, perf_gpu_wait, perf_frame_us;
-/* CPU time inside draw submission, comparable with [vgl2d-perf] submit_us. */
+/* CPU time inside draw submission, comparable with [vitagl-perf] submit_us. */
 static unsigned long long stat_submit_us, perf_submit;
 static unsigned perf_frames;
 static SceUInt64 perf_last_end;
