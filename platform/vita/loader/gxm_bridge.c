@@ -62,6 +62,8 @@ static unsigned batch_count;
 #define PERF_FRAMES 300u
 static unsigned stat_draws, stat_quads, stat_clips, stat_targets;
 static unsigned long long perf_draws, perf_quads, perf_clips, perf_gpu_wait, perf_frame_us;
+/* CPU time inside draw submission, comparable with [vgl2d-perf] submit_us. */
+static unsigned long long stat_submit_us, perf_submit;
 static unsigned perf_frames;
 static SceUInt64 perf_last_end;
 /* Region-clip cache: vita2d re-draws two full stencil rectangles on every
@@ -84,6 +86,7 @@ static void screen_target_present(void);
 static void canvas_shader_cleanup(void);
 static void flush_batch(void) {
     if (batch_count) {
+        SceUInt64 submit_started = sceKernelGetProcessTimeWide();
         if (batch_kind == BATCH_TEXTURED) {
             vita2d_texture_set_filters(batch_texture->texture,
                     batch_linear ? SCE_GXM_TEXTURE_FILTER_LINEAR : SCE_GXM_TEXTURE_FILTER_POINT,
@@ -93,6 +96,7 @@ static void flush_batch(void) {
         } else if (batch_kind == BATCH_COLOR) {
             vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES, (const vita2d_color_vertex *)batch_start, batch_count);
         }
+        stat_submit_us += sceKernelGetProcessTimeWide() - submit_started;
         stat_draws++;
     }
     batch_kind = BATCH_NONE;
@@ -333,16 +337,19 @@ void vita_gxm_end(int present) {
         perf_last_end = now;
         perf_draws += stat_draws; perf_quads += stat_quads; perf_clips += stat_clips;
         perf_gpu_wait += last_gpu_wait_us;
+        perf_submit += stat_submit_us;
         if (++perf_frames >= PERF_FRAMES) {
-            fprintf(stderr, "[gxm2d-perf] frames=%u avg_frame_us=%llu fps=%.1f draws=%llu quads=%llu clips=%llu gpu_wait_us=%llu targets=%u\n",
+            fprintf(stderr, "[gxm2d-perf] frames=%u avg_frame_us=%llu fps=%.1f draws=%llu quads=%llu clips=%llu gpu_wait_us=%llu targets=%u submit_us=%llu\n",
                     perf_frames, perf_frame_us / perf_frames, perf_frame_us ? 1000000.0 * perf_frames / (double)perf_frame_us : 0.0,
-                    perf_draws / perf_frames, perf_quads / perf_frames, perf_clips / perf_frames, perf_gpu_wait / perf_frames, stat_targets);
+                    perf_draws / perf_frames, perf_quads / perf_frames, perf_clips / perf_frames, perf_gpu_wait / perf_frames, stat_targets,
+                    perf_submit / perf_frames);
             fflush(stderr);
-            perf_frames = 0; perf_draws = perf_quads = perf_clips = perf_gpu_wait = perf_frame_us = 0;
+            perf_frames = 0; perf_draws = perf_quads = perf_clips = perf_gpu_wait = perf_frame_us = perf_submit = 0;
             stat_targets = 0;
         }
     }
     stat_draws = stat_quads = stat_clips = 0;
+    stat_submit_us = 0;
 }
 
 /* Offscreen render targets (SubViewport). Drawn before the main scene of

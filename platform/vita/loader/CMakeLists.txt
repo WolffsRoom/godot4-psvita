@@ -44,9 +44,17 @@ add_executable(${PROJECT_NAME}
   # Bridges VitaGL's non-underscore sceAppMgrGetBudgetInfo() (memory-budget
   # query) to the raw NID _sceAppMgrGetBudgetInfo in the SDK stubs.
   sdk_shims.c
-  gxm_bridge.c
   shacc_runtime.c
 )
+# Canvas transport. The default is the native libvita2d/GXM bridge.
+# VITA_VGL2D builds the experimental VitaGL bridge instead (same vita_gxm_*
+# contract, same libgodot.so): an A/B backend for 2D performance studies.
+option(VITA_VGL2D "Use the experimental VitaGL canvas bridge instead of libvita2d" OFF)
+if(VITA_VGL2D)
+  target_sources(${PROJECT_NAME} PRIVATE gxm_bridge_vgl.c)
+else()
+  target_sources(${PROJECT_NAME} PRIVATE gxm_bridge.c)
+endif()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
   VITA_RUNTIME_BUILD_ID="${VITA_RUNTIME_BUILD_ID}"
   VITA_LOG_ROOT="${VITA_LOG_ROOT}"
@@ -124,6 +132,13 @@ option(VITA_GXM3D "Enable experimental static mesh scene renderer" OFF)
 if(VITA_GXM3D)
   set(VITA_GXM2D ON)
 endif()
+if(VITA_VGL2D)
+  if(VITA_GXM3D)
+    message(FATAL_ERROR "VITA_VGL2D is a 2D-only backend; build it without VITA_GXM3D")
+  endif()
+  # RasterizerGXMVita is still selected by gxm2d.cfg; only eboot.bin differs.
+  set(VITA_GXM2D ON)
+endif()
 set(GXM_PACKAGE_FILES)
 if(VITA_GXM3D)
   file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gxm3d.cfg" "static-mesh-prototype-v1\n")
@@ -132,6 +147,16 @@ endif()
 if(VITA_GXM2D)
   file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gxm2d.cfg" "native-canvas-v2\n")
   list(APPEND GXM_PACKAGE_FILES FILE "${CMAKE_CURRENT_BINARY_DIR}/gxm2d.cfg" gxm2d.cfg)
+endif()
+if(VITA_VGL2D)
+  # Informational marker and optional tuning (see gxm_bridge_vgl.c).
+  set(VITA_VGL2D_CONFIG "" CACHE FILEPATH "Optional vgl2d.cfg with VitaGL pool thresholds")
+  if(VITA_VGL2D_CONFIG)
+    configure_file("${VITA_VGL2D_CONFIG}" "${CMAKE_CURRENT_BINARY_DIR}/vgl2d.cfg" COPYONLY)
+  else()
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/vgl2d.cfg" "vitagl-canvas-ab-v1\n")
+  endif()
+  list(APPEND GXM_PACKAGE_FILES FILE "${CMAKE_CURRENT_BINARY_DIR}/vgl2d.cfg" vgl2d.cfg)
 endif()
 # Optional game-specific LiveArea and pre-engine loading animation.
 # The default loader includes the animated 960x544 splash after LiveArea/pic0.
