@@ -101,3 +101,10 @@ O VPK gxm2d-canvas_features-20261013T025601Z foi empacotado em vpk_out/runtime-g
 ## Dodge the Creeps: mapeamento de input Vita (2026-10-13)
 
 O projeto original declara Godot 4.7, enquanto os indices do D-pad em Godot 4.8 sao UP=11 DOWN=12 LEFT=13 RIGHT=14. Ajustados na copia tests/dodge_the_creeps/project.godot. Simulacoes de eventos no host confirmaram START, X, analogico e as quatro direcoes. O runtime Vita refeito registra [vita-pad] em stderr para validar sceCtrl antes do InputMap. VPK de teste: vpk_out/runtime-gxm-dodge-controls-20261013-05/dodge_the_creeps_vita_controls.vpk. Teste fisico pendente.
+
+## Backend VitaGL para comparação (2026-11-04)
+
+`loader/gxm_bridge_vgl.c` implementa a mesma ponte sobre VitaGL, selecionada
+por `-DVITA_VGL2D=ON` no loader, para medir A/B contra a libvita2d com o mesmo
+`libgodot.so`. Avaliação, limites e procedimento em
+[VITAGL_2D_EVALUATION.md](VITAGL_2D_EVALUATION.md). Ainda não testado no Vita.
