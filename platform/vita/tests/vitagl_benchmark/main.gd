@@ -29,6 +29,9 @@ var finished := false
 
 func _ready() -> void:
 	quick = OS.get_cmdline_user_args().has("--quick")
+	# The Vita display server ignores the project's startup vsync mode, so
+	# set it explicitly; with vsync every slow frame is rounded up to 33 ms.
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	if FileAccess.file_exists("app0:vitagl.cfg") or FileAccess.file_exists("app0:/vitagl.cfg"):
 		backend = "vitagl"
 	elif OS.get_name() != "PS Vita" and not FileAccess.file_exists("app0:gxm2d.cfg"):
@@ -57,7 +60,7 @@ func _ready() -> void:
 	hud.position = Vector2(16, 12)
 	hud.add_theme_font_size_override("font_size", 18)
 	layer.add_child(hud)
-	printerr("[bench] READY backend=%s phases=%d warmup_s=%.1f measure_s=%.1f quick=%s" % [backend, phases.size(), _warmup(), _measure(), quick])
+	printerr("[bench] READY backend=%s phases=%d warmup_s=%.1f measure_s=%.1f quick=%s vsync=%d" % [backend, phases.size(), _warmup(), _measure(), quick, DisplayServer.window_get_vsync_mode()])
 	_next_phase()
 
 func _warmup() -> float:

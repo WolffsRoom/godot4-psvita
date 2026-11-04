@@ -114,6 +114,12 @@ DisplayServerVita::DisplayServerVita(const String &p_rendering_driver, WindowMod
 	joypad = memnew(JoypadVita(Input::get_singleton()));
 
 	Input::get_singleton()->set_emulate_mouse_from_touch(true);
+
+	// Apply the project's display/window/vsync/vsync_mode; it was ignored
+	// and the bridges always waited for vblank.
+	if (r_error == OK) {
+		window_set_vsync_mode(p_vsync_mode);
+	}
 }
 
 DisplayServerVita::~DisplayServerVita() {
