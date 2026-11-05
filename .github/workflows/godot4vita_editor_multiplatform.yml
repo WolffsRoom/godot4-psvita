@@ -83,7 +83,9 @@ jobs:
 
       - name: Build editor
         shell: bash
-        run: ${{ matrix.build }}
+        # The scripts default to ../_build outside the checkout; write inside it
+        # so the packaging step finds the payload.
+        run: ${{ matrix.build }} "$GITHUB_WORKSPACE/$(dirname '${{ matrix.payload }}')"
 
       - name: Package distribution
         shell: bash
