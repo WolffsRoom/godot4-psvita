@@ -73,50 +73,83 @@ int main(int argc, char *argv[]) {
 	scePowerSetGpuClockFrequency(222);
 	scePowerSetGpuXbarClockFrequency(166);
 
-	OS_Vita os;
-
-	// Godot 4.x: launch straight into the packaged project. On device the game
-	// data + PCK live inside the VPK at app0:.
-	// TODO: replace hard-coded args with real CLI parsing once bootstrapping works.
-    char project_path[96] = "app0:/game_data";
-    FILE *folder_file = fopen("app0:game_data_folder.cfg", "rb");
-    if (folder_file) {
-        char folder[66] = {};
-        size_t length = fread(folder, 1, sizeof(folder) - 1, folder_file);
-        bool valid = !ferror(folder_file) && length > 0 && length <= 64;
-        fclose(folder_file);
-        for (size_t i = 0; i < length; i++) {
-            char c = folder[i];
-            valid = valid && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                    (c >= '0' && c <= '9') || c == '_' || c == '-');
-        }
-        if (!valid) {
-            vlog("engine: invalid game_data_folder.cfg\n");
-            return 255;
-        }
-        char base[96];
-        snprintf(base, sizeof(base), "ux0:data/%s", folder);
-        sceIoMkdir(base, 0777);
-        char logs[128];
-        snprintf(logs, sizeof(logs), "%s/logs", base);
-        sceIoMkdir(logs, 0777);
-        snprintf(engine_log, sizeof(engine_log), "%s/godot_engine.log", logs);
-        snprintf(project_path, sizeof(project_path), "%s/game_data", base);
-    }
-	// A single game.pck next to game_data is preferred: every loose file on
-	// ux0: costs a directory lookup (~150 ms measured per resource), while a
-	// pack is one short path plus seeks into an in-memory directory.
-	// game_data/game.pck is preferred; the older layout kept it beside game_data.
-	char pack_path[128];
-	snprintf(pack_path, sizeof(pack_path), "%s/game.pck", project_path);
-	FILE *pack_file = fopen(pack_path, "rb");
-	if (!pack_file) {
-		snprintf(pack_path, sizeof(pack_path), "%.*s/game.pck", int(strrchr(project_path, '/') - project_path), project_path);
-		pack_file = fopen(pack_path, "rb");
+	// Every export includes the folder identity, regardless of whether game data
+	// is embedded in app0: or deployed separately to ux0:data/<folder>.
+	char folder[66] = "godotvitagame";
+	FILE *folder_file = fopen("app0:game_data_folder.cfg", "rb");
+	if (folder_file) {
+		char candidate[66] = {};
+		size_t n = fread(candidate, 1, sizeof(candidate) - 1, folder_file);
+		bool valid = !ferror(folder_file) && n > 0 && n <= 64;
+		fclose(folder_file);
+		for (size_t i = 0; i < n; i++) {
+			char c = candidate[i];
+			valid = valid && ((c >= 'a' && c <= 'z') ||
+					(c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+					c == '_' || c == '-');
+		}
+		if (!valid) {
+			// Best-effort fallback log for malformed legacy packages.
+			vlog("FATAL: invalid game_data_folder.cfg\n");
+			return 255;
+		}
+		memcpy(folder, candidate, n);
+		folder[n] = 0;
 	}
-	bool use_pack = pack_file != NULL;
-	if (pack_file) fclose(pack_file);
-	vlog(use_pack ? "engine: using game.pck\n" : "engine: using loose game_data\n");
+	char data_root[112];
+	char log_root[136];
+	snprintf(data_root, sizeof(data_root), "ux0:data/%s", folder);
+	snprintf(log_root, sizeof(log_root), "%s/logs", data_root);
+	sceIoMkdir("ux0:data", 0777);
+	sceIoMkdir(data_root, 0777);
+	sceIoMkdir(log_root, 0777);
+	snprintf(engine_log, sizeof(engine_log), "%s/godot_engine.log", log_root);
+	sceIoRemove(engine_log);
+	vlog("engine: entered main()\n");
+	vlog("engine: log path configured\n");
+
+	// Resource path and diagnostic path are orthogonal. First check the PCK
+	// embedded in the VPK, then the new split-export root game.pck, then the
+	// legacy game_data/game.pck path. This also keeps old exported games working.
+	char embedded_pack[] = "app0:game_data/game.pck";
+	char pack_path[160] = {};
+	char project_path[160] = {};
+	char split_pack[160];
+	char legacy_pack[160];
+	snprintf(split_pack, sizeof(split_pack), "%s/game.pck", data_root);
+	snprintf(legacy_pack, sizeof(legacy_pack), "%s/game_data/game.pck", data_root);
+	const char *candidates[] = { embedded_pack, split_pack, legacy_pack };
+	bool use_pack = false;
+	for (unsigned i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+		FILE *f = fopen(candidates[i], "rb");
+		if (f) {
+			fclose(f);
+			snprintf(pack_path, sizeof(pack_path), "%s", candidates[i]);
+			use_pack = true;
+			break;
+		}
+	}
+	// Loose project fallback remains supported in both deployment styles.
+	snprintf(project_path, sizeof(project_path), "%s", "app0:game_data");
+	if (!use_pack) {
+		char candidate[160];
+		snprintf(candidate, sizeof(candidate), "%s/game_data/project.binary", data_root);
+		FILE *f = fopen(candidate, "rb");
+		if (f) {
+			fclose(f);
+			snprintf(project_path, sizeof(project_path), "%s/game_data", data_root);
+		} else {
+			f = fopen("app0:game_data/project.binary", "rb");
+			if (!f) {
+				vlog("FATAL: missing game.pck or project.binary; for Separate Folder copy <folder>/game.pck to ux0:data/<folder>/game.pck\n");
+				return 255;
+			}
+			fclose(f);
+		}
+	}
+	vlog(use_pack ? "engine: PCK found\n" : "engine: loose resources found\n");
+	OS_Vita os;
+	vlog("engine: OS_Vita constructed\n");
 	const char *args[] = {
 		use_pack ? "--main-pack" : "--path", use_pack ? pack_path : project_path,
 		"--rendering-driver", "opengl3",
@@ -125,7 +158,6 @@ int main(int argc, char *argv[]) {
 		"--verbose",
 	};
 
-	sceIoRemove(engine_log);
 	// Capture Godot's own stdout/stderr (with --verbose) so we can see exactly
 	// why Main::setup succeeds or fails.
 	char output_log[160];

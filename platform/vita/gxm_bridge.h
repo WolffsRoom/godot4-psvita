@@ -21,6 +21,26 @@ int vita_gxm_vertex_lighting_available(void);
 void *vita_gxm_light_mesh_create(const float *xyz, unsigned count);
 void vita_gxm_light_mesh_set_colors(void *mesh, const uint32_t *colors);
 int vita_gxm_light_mesh_draw(void *mesh, const float *mvp);
+/* Runtime-compiled native GXM canvas shaders (Cg -> GXP via vitaShaRK).
+ * Uniforms use Godot ShaderMaterial names and are uploaded per draw. */
+typedef struct VitaGXMCanvasUniform {
+    char name[48];
+    float value[4];
+    int components;
+} VitaGXMCanvasUniform;
+typedef struct VitaGXMCanvasSampler {
+    void *texture;
+} VitaGXMCanvasSampler;
+int vita_gxm_canvas_compiler_idle(void);
+int vita_gxm_canvas_shader_compiler_enabled(void);
+int vita_gxm_canvas_shader_create(const char *cg_source);
+int vita_gxm_canvas_shader_draw(int shader_handle, void *texture, void *screen_texture,
+        const float *xy, const float *uv, uint32_t color,
+        const VitaGXMCanvasUniform *uniforms, unsigned uniform_count,
+        const VitaGXMCanvasSampler *samplers, unsigned sampler_count);
+/* Screen sampling uses separate GXM render targets (never read-write aliasing). */
+int vita_gxm_canvas_screen_begin(uint32_t color);
+void *vita_gxm_canvas_screen_snapshot(void);
 void vita_gxm_blend_add(int enabled);
 void vita_gxm_quad(const float *xy, uint32_t color);
 void *vita_gxm_texture_create(int width, int height, const uint8_t *rgba);

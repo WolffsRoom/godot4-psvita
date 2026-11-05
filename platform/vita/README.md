@@ -64,3 +64,11 @@ bitcasts, interpolação e funções GL vazias exigem validação específica.
 
 Os relatos históricos de probes e bring-up permanecem no histórico Git.
 Para decisões atuais, usar a matriz de evidências e prioridades do ROADMAP.
+
+
+## v0.3 native shader compiler
+
+The optional vitaShaRK / libshacccg integration is documented in
+[SHADER_COMPILER.md](SHADER_COMPILER.md). Export presets expose
+Rendering / Shader Compiler (disabled, safe or experimental).
+Exported VPKs never include Sony firmware.

@@ -61,6 +61,8 @@ distortion on hardware:
   there is no extra 1 ms sleep per block.
 
 Set `audio/vita/output_mode="main48"` in a project to keep the previous layout
-(MAIN 48 kHz, 2048 frames, 72% hardware gain, ALC off, high priority / CPU3).
+(MAIN 48 kHz, 2048 frames, 72% hardware gain, ALC off and high priority).
+Both layouts now remain on the normal user cores. Starting with the local v0.3
+work, CPU3 is reserved exclusively for the optional PCK prefetch worker.
 Ports pick up the new default only when their runtime is rebuilt. The startup
 log line is `[vita-audio] layout=... route=... frames=... rate=...`.

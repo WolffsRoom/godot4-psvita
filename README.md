@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <em>A custom Godot 4.8-dev7 runtime with native GXM rendering, plus a Windows editor that exports PS Vita VPKs directly.<br>
+  <em>A custom Godot 4.8-dev7 runtime with native GXM rendering, plus desktop editors that export PS Vita VPKs directly.<br>
   This is not an official Godot release.</em>
 </p>
 
@@ -40,7 +40,8 @@
 <summary><b>Overview and Features</b></summary>
 
 - [What This Project Is](#what-this-project-is)
-- [Windows Editor with PS Vita Export](#windows-editor-with-ps-vita-export)
+- [What's New in v0.2](#whats-new-in-v02)
+- [Desktop Editors with PS Vita Export](#desktop-editors-with-ps-vita-export)
 - [LiveArea Template Selection with Previews](#livearea-template-selection-with-previews)
 - [PS Vita Trophies (In Development)](#ps-vita-trophies-in-development)
 
@@ -86,14 +87,32 @@ Godot 4 does not run on the PS Vita out of the box: the Vita has a 444 MHz quad-
 |---|---|
 | **Runtime** (`platform/vita`) | Godot 4.8-dev7 compiled for ARM as a position-independent `libgodot.so`, with a Vita OS layer, native GXM 2D/3D renderers, audio, input and file access. |
 | **Loader** (`platform/vita/loader`) | A small Vita `eboot.bin` that maps, relocates and starts `libgodot.so`, resolves its imports against the Vita SDK, shows the loading animation and manages CapUnlocker, logs and data paths. |
-| **Windows editor** (`modules/vita_editor` + `platform/vita/editor`) | A Godot 4.8-dev7 Windows editor build in which **PS Vita is a built-in export platform**. It turns any compatible project into an installable VPK, with LiveArea, trophies and a separate data folder. |
+| **Desktop editors** (`modules/vita_editor` + `platform/vita/editor`) | Godot 4.8-dev7 editor builds for Windows x64, Linux x86_64 and universal macOS in which **PS Vita is a built-in export platform**. They turn any compatible project into an installable VPK, with LiveArea, trophies and a separate data folder. |
 
 ---
 
-<a id="windows-editor-with-ps-vita-export"></a>
-<h2 align="center"><img src="docs/images/headings/light/windows-editor-with-ps-vita-export.png#gh-light-mode-only" alt="Windows editor with PS Vita export" width="900"><img src="docs/images/headings/dark/windows-editor-with-ps-vita-export.png#gh-dark-mode-only" alt="Windows editor with PS Vita export" width="900"></h2>
+<a id="whats-new-in-v02"></a>
+<h2 align="center"><img src="docs/images/headings/light/whats-new-in-v02.png#gh-light-mode-only" alt="What's new in v0.2" width="900"><img src="docs/images/headings/dark/whats-new-in-v02.png#gh-dark-mode-only" alt="What's new in v0.2" width="900"></h2>
 
-The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appears in **Project > Export > Add…** for every project, without installing an addon, Python, WSL or VitaSDK.
+Version 0.2 turns the first editor/runtime proof of concept into a more practical PS Vita development package:
+
+- **Portable Windows editor:** the v0.2 release includes the complete zipped editor, with the PS Vita export platform and templates ready to use. Linux and macOS distributions are being added for v0.3.
+- **PCK-first exports:** projects are exported as a single `game.pck` by default. Developers can still choose loose files under `game_data` when that layout is useful for testing or patching.
+- **Built-in Vita export workflow:** VPK creation, separate `ux0:data/<game>/` folders, CapUnlocker configuration, RGBA4444/RGBA8888 textures and LiveArea previews are available from the Godot export dialog.
+- **Improved native GXM 3D:** repaired `AnimatedSprite3D` frame updates, Sprite3D tint/modulation, transparent-surface ordering, native 3D followed by a sharp 2D canvas pass, light flares, decals, distance culling and an optional tilt-shift resolve.
+- **Improved native GXM 2D:** batching, NinePatch, polygons, bitmap/atlas fonts, SubViewport render targets, clipping and front-touch input are exercised by real projects.
+- **Standard Godot4Vita presentation:** exported VPKs use the Godot icon and the default Godot4Vita LiveArea unless a project supplies its own assets.
+- **v0.2 showcase:** a demonstration VPK combines a controllable rigged 3D character, orbit/zoom camera, jump and roll animations, lighting/effects and a layered 2D preview. Press **Select** for 2D and **Start** for 3D.
+- **More real-game validation:** the gallery below now includes 2D and 3D projects running on the engine, including Lantern Crossing by jeeve-javari.
+
+The 3D renderer is still experimental. Compatibility and performance must be validated on real PS Vita hardware for each project.
+
+---
+
+<a id="desktop-editors-with-ps-vita-export"></a>
+<h2 align="center"><img src="docs/images/headings/light/windows-editor-with-ps-vita-export.png#gh-light-mode-only" alt="Desktop editors with PS Vita export" width="900"><img src="docs/images/headings/dark/windows-editor-with-ps-vita-export.png#gh-dark-mode-only" alt="Desktop editors with PS Vita export" width="900"></h2>
+
+Starting with v0.3, the distribution set includes portable editors for Windows x64 (**`Godot4Vita.exe`**), Linux x86_64 (**`Godot4Vita`**) and universal macOS (**`Godot4Vita.app`**, Intel + Apple Silicon). PS Vita appears in **Project > Export > Add…** for every project, without installing an addon, Python, WSL or VitaSDK.
 
 <p align="center">
   <img src="docs/images/export_dialog.png" alt="PS Vita export preset in the Godot editor" width="900">
@@ -102,7 +121,7 @@ The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appea
 <a id="how-the-export-platform-was-integrated"></a>
 <h3 align="center"><img src="docs/images/headings/light/how-the-export-platform-was-integrated.png#gh-light-mode-only" alt="How the export platform was integrated" width="720"><img src="docs/images/headings/dark/how-the-export-platform-was-integrated.png#gh-dark-mode-only" alt="How the export platform was integrated" width="720"></h3>
 
-- **`modules/vita_editor`** is a small engine module compiled only into the Windows editor. At editor startup it registers a native `EditorPlugin` that loads three scripts from the `vita/` folder beside the executable: the export platform (`platform.gd`, an `EditorExportPlatformExtension`), an inspector plugin (`defaults_inspector.gd`) and the trophy panel (`trophy_panel.gd`). Keeping the logic in scripts beside the exe lets the export pipeline be updated without recompiling the editor.
+- **`modules/vita_editor`** is a small engine module compiled into the desktop editors. At startup it registers a native `EditorPlugin` that loads three scripts from the portable `vita/` folder: the export platform (`platform.gd`, an `EditorExportPlatformExtension`), an inspector plugin (`defaults_inspector.gd`) and the trophy panel (`trophy_panel.gd`). On Windows and Linux that folder is beside the executable; on macOS it is under `Godot4Vita.app/Contents/MacOS`. Keeping the logic outside the binary lets the export pipeline be updated without recompiling the editor.
 - The same scripts also work as a classic addon (`addons/psvita`) for the official 4.8-dev7 editor. When the native plugin is present, the addon detects it and does not register a second platform.
 - **Preset validation** checks the title, a 9-character Title ID, version `NN.NN`, the Compatibility renderer, a 960 × 544 viewport, the worker-thread count, the script export mode (text scripts) and the presence of the template. **Prepare settings for PS Vita** writes the required Vita overrides into the project; **Apply PS Vita defaults** restores the default images and the `a5` LiveArea.
 - **Export** uses Godot's own resource exporter, so scenes are remapped and textures, fonts and audio are taken from `.godot/imported`. The Vita never imports assets. The runtime template (`vita/templates/vita_release.zip`) contains the loader, `libgodot.so`, the boot animation and a manifest with SHA-256 hashes; hashes are verified before packaging, and the destination VPK is only replaced after a successful build.
@@ -113,7 +132,7 @@ The release ships **`Godot4Vita.exe`**, a portable Windows editor. PS Vita appea
 
 | Option | Effect |
 |---|---|
-| **Data > Separate Folder** (default on) | The VPK contains the runtime and LiveArea; the game data goes into a folder next to it, which you copy to `ux0:data/<Folder Name>/`. Re-installing a large game no longer requires rebuilding a huge VPK. Turn it off to put everything inside the VPK. Earlier exports are kept with a `.previous-…` suffix. |
+| **Data > Separate Folder** (default on) | Produces `Game.vpk` and a sibling `<Folder Name>/` containing only `game.pck` and an empty `logs/` directory. Install the VPK normally and copy that complete folder to `ux0:data/`. Re-installing a large game no longer requires rebuilding a huge VPK. Turn it off to put everything inside the VPK. Earlier exports are kept with a `.previous-…` suffix. |
 | **Performance > CapUnlocker** | `disabled`, `optional` (uses the fourth CPU core when the CapUnlocker plugin is installed) or `required` (shows instructions and exits when missing). When available, the audio mixer can run on the reserved core. |
 | **Textures > GPU Format** | `RGBA4444` (default, half the GPU memory and transfer size) or `RGBA8888` (full precision for gradients and soft alpha). The conversion happens when the loader uploads each texture; project files are not changed. |
 | **LiveArea > Style** | The `template.xml` layout, with visual previews (see below). |
@@ -146,6 +165,29 @@ The same editor opens and exports the ported games. These projects were adapted 
 <h3 align="center"><img src="docs/images/headings/light/example-export.png#gh-light-mode-only" alt="Example export" width="720"><img src="docs/images/headings/dark/example-export.png#gh-dark-mode-only" alt="Example export" width="720"></h3>
 
 [`examples/vita_export`](examples/vita_export) contains a minimal project, the `Exemplo.vpk` exported from it and its `ux0:data/exemplovita` data folder. Use it as a reference for the expected VPK and data layout, or install it to check that a Vita is ready for this runtime.
+
+For example, a preset with Title ID `SPME40001`, Folder Name `splitmemories`, PCK format and **Separate Folder** enabled produces:
+
+```text
+SplitMemories.vpk
+splitmemories/
+├─ game.pck
+└─ logs/
+```
+
+After installing the VPK and copying the sibling folder, the Vita layout is:
+
+```text
+ux0:app/SPME40001/
+ux0:data/splitmemories/
+├─ game.pck
+└─ logs/
+   ├─ godot_diag.log
+   ├─ godot_loader.log
+   ├─ godot_engine.log
+   ├─ godot_stdout.log
+   └─ godot_stderr.log
+```
 
 ---
 
@@ -266,7 +308,7 @@ Not available yet: real-time shadow maps, fog, screen-space effects, custom spat
 
 - **Audio:** Godot's AudioServer mixes as usual; the Vita driver sends PCM16 to SceAudio. The default `audio/vita/output_mode="godot3"` reproduces the layout of the Godot 3 Vita driver that plays without distortion on hardware (BGM port, project mix rate, 512-frame blocks). `main48` keeps the earlier 48 kHz / 2048-frame layout. See [AUDIO_BACKEND.md](platform/vita/AUDIO_BACKEND.md).
 - **Input:** D-pad, both analog sticks, face buttons, shoulders, START/SELECT as Godot joypad 0, plus **front touch screen** events.
-- **Data loading:** the runtime reads `app0:game_data_folder.cfg` to find `ux0:data/<folder>/game_data`. If a **`game.pck`** is present it is mounted with `--main-pack`; every loose file on `ux0:` costs a directory lookup (about 150 ms measured per resource), so one pack loads much faster. Logs are written to `ux0:data/<folder>/logs/`.
+- **Data loading:** the runtime reads `app0:game_data_folder.cfg` and mounts `ux0:data/<folder>/game.pck` with `--main-pack`. The legacy `<folder>/game_data/game.pck` and loose `<folder>/game_data/` layouts remain readable. Every loose file on `ux0:` costs a directory lookup (about 150 ms measured per resource), so one pack loads much faster. All five startup/runtime logs are written to `ux0:data/<folder>/logs/`.
 
 ---
 
@@ -364,7 +406,7 @@ The clips below were recorded directly from the local Godot project builds. They
 <a id="download-and-quick-start"></a>
 <h2 align="center"><img src="docs/images/headings/light/download-and-quick-start.png#gh-light-mode-only" alt="Download and quick start" width="900"><img src="docs/images/headings/dark/download-and-quick-start.png#gh-dark-mode-only" alt="Download and quick start" width="900"></h2>
 
-1. Download **`Godot4Vita-v0.2-Windows-x64.zip`** from the [latest release](https://github.com/WolffsRoom/godot4-psvita/releases/latest) and extract the whole folder. Keep `vita/` next to `Godot4Vita.exe`.
+1. Download the ZIP for your system from the [latest release](https://github.com/WolffsRoom/godot4-psvita/releases/latest): **Windows x64**, **Linux x86_64** or **macOS universal**. Extract the entire folder; do not move the executable or `.app` away from its bundled `vita/` support files.
 2. Open or create a project. In **Project > Export > Add…** choose **PS Vita** and click **Prepare settings for PS Vita**.
 3. Set the title, a unique 9-character Title ID and the version, choose the LiveArea style and the data folder name.
 4. Click **Export Project** and save the `.vpk`.
@@ -382,14 +424,14 @@ The PS Vita export and trophy panels are currently labelled in Portuguese (for e
 - No C#, GDExtension or remote debugging on the Vita. Scripts are exported as text.
 - The runtime is pinned to **Godot 4.8-dev7**; projects from other 4.x versions usually open after conversion, but the template is not interchangeable with other engine builds.
 - Trophies are packaged but not unlocked at run time yet.
-- The Windows editor uses the desktop Compatibility renderer; what you see on the PC is not a Vita emulator.
+- The desktop editor uses the host Compatibility renderer; what you see on the computer is not a Vita emulator.
 
 ---
 
 <a id="building-from-source"></a>
 <h2 align="center"><img src="docs/images/headings/light/building-from-source.png#gh-light-mode-only" alt="Building from source" width="900"><img src="docs/images/headings/dark/building-from-source.png#gh-dark-mode-only" alt="Building from source" width="900"></h2>
 
-**Requirements:** Linux/WSL, [VitaSDK](https://vitasdk.org), Python 3, SCons, CMake, the patched [VitaGL](https://github.com/Rinnegatamante/vitagl) build described in [platform/vita/vitagl](platform/vita/vitagl/README.md), and MinGW-w64 (POSIX threads) for the Windows editor.
+**Runtime requirements:** Linux/WSL, [VitaSDK](https://vitasdk.org), Python 3, SCons, CMake and the patched [VitaGL](https://github.com/Rinnegatamante/vitagl) build described in [platform/vita/vitagl](platform/vita/vitagl/README.md). The Windows editor additionally needs MinGW-w64 (POSIX threads); Linux builds natively; the universal macOS editor must be built on macOS with Xcode command-line tools.
 
 Runtime, loader and export template (WSL):
 
@@ -407,6 +449,22 @@ python platform/vita/tools/package_windows_editor.py
 python platform/vita/tools/archive_windows_editor.py
 ```
 
+Linux x86_64 editor and portable ZIP:
+
+```bash
+platform/vita/tools/build_linux_editor.sh
+python platform/vita/tools/package_editor_distribution.py --platform linux --arch x86_64 --payload _build/editor-linux/Godot4Vita --support /path/to/portable-support --output releases/Godot4Vita-v0.3-Linux-x86_64.zip
+```
+
+Universal macOS editor (Intel + Apple Silicon) and portable ZIP:
+
+```bash
+platform/vita/tools/build_macos_editor.sh
+python platform/vita/tools/package_editor_distribution.py --platform macos --arch universal --payload _build/editor-macos/Godot4Vita.app --support /path/to/portable-support --output releases/Godot4Vita-v0.3-macOS-universal.zip
+```
+
+`portable-support` is the extracted editor distribution containing `vita/templates/vita_release.zip`. The manual **Godot4Vita editor distributions** workflow performs both native builds and publishes checksummed artifacts for validation before a release.
+
 See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/vita/editor/INTEGRATED_WINDOWS.md) and [GXM_BACKEND.md](platform/vita/GXM_BACKEND.md).
 
 ---
@@ -421,7 +479,7 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 | `platform/vita/rasterizer_scene_gxm_vita.inc`, `godot_vita_gxm3d.cpp` | Experimental GXM 3D renderer and its entry point |
 | `platform/vita/loader/` | Loader, ELF relocation, SDK import table, GXM bridge, boot animation |
 | `platform/vita/editor/addons/psvita/` | Export platform, LiveArea previews, trophy tools (GDScript) |
-| `modules/vita_editor/` | Native editor plugin that registers PS Vita in the Windows editor |
+| `modules/vita_editor/` | Native editor plugin that registers PS Vita in the desktop editors |
 | `platform/vita/tools/` | Build, packaging, template, validation and coredump tools |
 | `platform/vita/tests/` | ColorRect, canvas, 3D mesh and Dodge the Creeps test projects |
 

@@ -34,7 +34,6 @@
 #include "core/config/project_settings.h"
 #include "core/os/os.h"
 
-#include <psp2/kernel/threadmgr.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -49,8 +48,8 @@
 // released before sceAudioOutOutput and there is no extra sleep per block.
 //
 // "main48": the previous 4.x layout. MAIN port at 48 kHz, 2048-frame blocks,
-// 72% hardware gain, ALC off on the BGM fallback, high-priority thread that
-// moves to CPU3 when CapUnlocker is present.
+// 72% hardware gain, ALC off on the BGM fallback and a high-priority mixer
+// thread on the user cores.
 
 static bool vita_audio_godot3_layout() {
 	ProjectSettings *settings = ProjectSettings::get_singleton();
@@ -137,13 +136,11 @@ void AudioDriverVita::start() {
 
 void AudioDriverVita::thread_func(void *p_udata) {
 	AudioDriverVita *ad = static_cast<AudioDriverVita *>(p_udata);
-	int affinity_rc = 0;
-	const char *capunlocker = getenv("GODOT_VITA_CAPUNLOCKER");
-	if (!ad->godot3_layout && capunlocker && capunlocker[0] == '1') {
-		affinity_rc = sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_SYSTEM);
-	}
-	fprintf(stderr, "[vita-audio] mixer_thread running capunlocker=%d cpu3_affinity_rc=0x%08x\n",
-			capunlocker && capunlocker[0] == '1' ? 1 : 0, (unsigned int)affinity_rc);
+	// Dome Keeper reference: keep the high-priority blocking mixer on the
+	// normal user cores. CPU3 is reserved for the optional PCK prefetch worker,
+	// so storage bursts can never starve sceAudioOutOutput.
+	fprintf(stderr, "[vita-audio] mixer_thread running dedicated_user_core=1 priority=%s\n",
+			ad->godot3_layout ? "normal" : "high");
 	fflush(stderr);
 	unsigned int block_count = 0;
 

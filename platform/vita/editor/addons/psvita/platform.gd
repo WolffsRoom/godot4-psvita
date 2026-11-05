@@ -3,8 +3,8 @@ extends EditorExportPlatformExtension
 
 const TrophyTools = preload("trophy_tools.gd")
 
-const TEMPLATE = "res://addons/psvita/templates/vita_release.zip"
-const DEFAULT_DIR = "res://addons/psvita/defaults"
+static var TEMPLATE = OS.get_executable_path().get_base_dir().path_join("vita/templates/vita_release.zip")
+static var DEFAULT_DIR = OS.get_executable_path().get_base_dir().path_join("vita/defaults")
 const LIVEAREA_STYLES = ["a5", "a1", "a2", "a3", "a4", "ad0", "nsx1", "ps1emu", "psmobile", "pspemu", "vd", "browser", "content_manager", "kids", "music"]
 const ASSETS = {
 	"assets/icon_128x128": ["sce_sys/icon0.png", Vector2i(128, 128)],
@@ -21,7 +21,7 @@ func _get_os_name() -> String:
 
 func _get_logo() -> Texture2D:
 	if logo == null:
-		var img := Image.load_from_file("res://addons/psvita/iconGodotPSV.png")
+		var img := Image.load_from_file(OS.get_executable_path().get_base_dir().path_join("vita/iconGodotPSV.png"))
 		if img == null:
 			return null
 		var size := maxi(32, roundi(32 * EditorInterface.get_editor_scale()))
@@ -45,7 +45,9 @@ func _get_export_options() -> Array[Dictionary]:
 		{"name": "data/package_format", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "PCK,Game Data (arquivos soltos)", "default_value": "PCK"},
 		{"name": "data/folder_name", "type": TYPE_STRING, "default_value": "godotvitagame"},
 		{"name": "performance/capunlocker", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "Desativado:disabled,Opcional:optional,Obrigatório:required", "default_value": "optional"},
+		{"name": "performance/pck_prefetch", "type": TYPE_BOOL, "default_value": true},
 		{"name": "textures/gpu_format", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "RGBA4444,RGBA8888", "default_value": "RGBA4444"},
+		{"name": "rendering/shader_compiler", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "Desativado:disabled,Seguro (experimental):safe,Avançado (risco de crash):experimental", "default_value": "disabled"},
 		{"name": "livearea/style", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": ",".join(LIVEAREA_STYLES), "default_value": "a5"},
 		{"name": "application/title", "type": TYPE_STRING, "default_value": "Godot Vita Game"},
 		{"name": "application/title_id", "type": TYPE_STRING, "default_value": "GDOT40001"},
@@ -93,12 +95,14 @@ func _configuration_error(preset: EditorExportPreset, _debug: bool) -> String:
 		var trophy_error := TrophyTools.validate(trophies)
 		if not trophy_error.is_empty():
 			return "Troféus: " + trophy_error
-	if preset.get("data/separate_folder") and not valid_data_folder(str(preset.get("data/folder_name"))):
+	if not valid_data_folder(str(preset.get("data/folder_name"))):
 		return "Nome da pasta de dados: use 1 a 64 letras, números, hífen ou sublinhado; não use nomes reservados do Windows."
 	if str(preset.get("data/package_format")) not in ["PCK", "Game Data (arquivos soltos)"]:
 		return "Selecione PCK ou Game Data (arquivos soltos)."
 	if str(preset.get("textures/gpu_format")) not in ["RGBA4444", "RGBA8888"]:
 		return "Selecione RGBA4444 ou RGBA8888 para as texturas da GPU."
+	if str(preset.get("rendering/shader_compiler")) not in ["disabled", "safe", "experimental"]:
+		return "Modo inválido do compilador de shaders GXM."
 	if str(preset.get("performance/capunlocker")) not in ["disabled", "optional", "required"]:
 		return "Selecione um modo válido para o CapUnlocker."
 	if str(preset.get("livearea/style")) not in LIVEAREA_STYLES:
@@ -163,6 +167,10 @@ func _get_export_option_warning(_preset: EditorExportPreset, option: StringName)
 		return "PCK é o padrão recomendado e carrega mais rápido. Game Data gera os recursos soltos para depuração e atualização manual."
 	if option == &"data/folder_name":
 		return "Copie esta pasta inteira para ux0:data/ no Vita. Use um nome exclusivo para cada jogo."
+	if option == &"performance/pck_prefetch":
+		return "v0.3 experimental: antecipa leituras sequenciais do PCK no quarto núcleo quando o CapUnlocker está disponível."
+	if option == &"rendering/shader_compiler":
+		return "Opcional: usa vitaShaRK e o libshacccg.suprx do usuário em ur0:data/. 'Seguro' permite apenas shaders simples; 'Avançado' pode causar travamentos. Nunca acompanha o VPK."
 	if option == &"textures/gpu_format" and _preset.get(option) == "RGBA4444":
 		return "16 bits por pixel na GPU; reduz precisão de cores e alpha. Cópias em RAM não mudam. Economia depende do alinhamento das alocações."
 	if option == &"performance/capunlocker":
@@ -179,6 +187,25 @@ func _fail(message: String, error: int = ERR_INVALID_DATA) -> int:
 
 static func _safe_path(path: String) -> bool:
 	return not path.is_empty() and not path.begins_with("/") and not path.contains(":") and not path.contains("\\") and not ".." in path.split("/")
+
+static func _owns_existing_data(destination: String, data_destination: String, folder: String, owner: String) -> bool:
+	if not DirAccess.dir_exists_absolute(data_destination):
+		return true
+	# Accept folders produced by older v0.2/v0.3 editor builds once, then
+	# migrate ownership into the VPK so the deployable data directory remains
+	# exactly <folder>/game.pck + logs/.
+	var legacy_owner := data_destination.path_join(".vita-export-owner")
+	if FileAccess.file_exists(legacy_owner):
+		return FileAccess.get_file_as_string(legacy_owner) == owner
+	if not FileAccess.file_exists(destination):
+		return false
+	var previous := ZIPReader.new()
+	if previous.open(destination) != OK:
+		return false
+	var owned := (previous.read_file("game_data_folder.cfg").get_string_from_utf8() == folder and
+		previous.read_file("game_data_owner.cfg").get_string_from_utf8() == owner)
+	previous.close()
+	return owned
 
 # Vita PARAM.SFO: sorted keys, little-endian entries, padded value capacities.
 static func make_sfo(title: String, title_id: String, version: String) -> PackedByteArray:
@@ -247,7 +274,7 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 	var destination := ProjectSettings.globalize_path(path)
 	var data_destination := destination.get_base_dir().path_join(folder)
 	var owner := str(preset.get("application/title_id"))
-	if separate and (FileAccess.file_exists(data_destination) or (DirAccess.dir_exists_absolute(data_destination) and FileAccess.get_file_as_string(data_destination.path_join(".vita-export-owner")) != owner)):
+	if separate and not _owns_existing_data(destination, data_destination, folder, owner):
 		return _fail("A pasta de destino já existe e não pertence a este preset: " + data_destination)
 	var template := ZIPReader.new()
 	if template.open(_template_path(preset)) != OK:
@@ -271,6 +298,9 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 	if preset.get("textures/gpu_format") not in manifest.get("texture_formats", ["RGBA8888"]):
 		template.close()
 		return _fail("Este template não suporta o formato selecionado. Atualize o template ou selecione RGBA8888.")
+	if str(preset.get("rendering/shader_compiler")) != "disabled" and manifest.get("runtime_shacc", "") != "v1":
+		template.close()
+		return _fail("O compilador de shaders GXM exige um template v0.3 com integração vitaShaRK. Atualize o template ou desative Rendering / Shader Compiler.")
 	for binary in ["eboot.bin", "libgodot.so"]:
 		var hashing := HashingContext.new()
 		hashing.start(HashingContext.HASH_SHA256)
@@ -299,7 +329,7 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 			if not _safe_path(name) or name.begins_with("game_data/"):
 				error = ERR_INVALID_DATA
 				break
-			if name.ends_with("/") or name in ["sce_sys/param.sfo", "gxm_texture_format.cfg", "game_data_folder.cfg", "capunlocker.cfg"]:
+			if name.ends_with("/") or name in ["sce_sys/param.sfo", "gxm_texture_format.cfg", "game_data_folder.cfg", "capunlocker.cfg", "shacc.cfg"]:
 				continue
 			var replacement := ""
 			for key in ASSETS:
@@ -316,11 +346,17 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 		if error == OK:
 			error = _put(zip, "capunlocker.cfg", (str(preset.get("performance/capunlocker")) + "\n").to_utf8_buffer())
 		if error == OK:
+			error = _put(zip, "shacc.cfg", (str(preset.get("rendering/shader_compiler")) + "\n").to_utf8_buffer())
+		if error == OK:
+			error = _put(zip, "pck_prefetch.cfg", (("enabled" if preset.get("performance/pck_prefetch") else "disabled") + "\n").to_utf8_buffer())
+		if error == OK:
 			error = _put(zip, "sce_sys/param.sfo", make_sfo(preset.get("application/title"), preset.get("application/title_id"), preset.get("application/version")))
-		if error == OK and separate:
+		# Folder identity is always embedded, independent of PCK location.
+		# This is also the log/save namespace for single-VPK exports.
+		if error == OK:
 			error = _put(zip, "game_data_folder.cfg", folder.to_utf8_buffer())
-			if error == OK:
-				error = _write_data(data_staging.path_join(".vita-export-owner"), owner.to_utf8_buffer())
+		if error == OK:
+			error = _put(zip, "game_data_owner.cfg", owner.to_utf8_buffer())
 		if error == OK and not trophy_package.is_empty():
 			error = _put(zip, trophy_package.vpk_path, trophy_package.trp)
 		if error == OK and package_pck:
@@ -328,7 +364,7 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 			if pck_bytes.is_empty():
 				error = ERR_FILE_CORRUPT
 			else:
-				error = _write_data(data_staging.path_join("game_data/game.pck"), pck_bytes) if separate else _put(zip, "game_data/game.pck", pck_bytes)
+				error = _write_data(data_staging.path_join("game.pck"), pck_bytes) if separate else _put(zip, "game_data/game.pck", pck_bytes)
 		if error == OK and not package_pck:
 			for name in game.get_files():
 				if not _safe_path(name):
@@ -383,7 +419,7 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 		DirAccess.remove_absolute(previous_vpk)
 	add_message(EXPORT_MESSAGE_INFO, "PS Vita", "VPK: " + destination)
 	if separate:
-		add_message(EXPORT_MESSAGE_INFO, "PS Vita", "Copie a pasta " + data_destination + " para ux0:data/ (destino: ux0:data/" + folder + ", formato: " + ("game.pck" if package_pck else "game_data solto") + ").")
+		add_message(EXPORT_MESSAGE_INFO, "PS Vita", "Copie a pasta " + data_destination + " para ux0:data/ (destino: ux0:data/" + folder + ", formato: " + ("game.pck na raiz da pasta" if package_pck else "game_data solto") + ").")
 	if backed_up:
 		add_message(EXPORT_MESSAGE_INFO, "PS Vita", "Dados anteriores preservados em " + previous_data)
 	return OK

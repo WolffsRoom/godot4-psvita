@@ -1,0 +1,118 @@
+name: Godot4Vita editor distributions
+
+on:
+  workflow_dispatch:
+    inputs:
+      support_release:
+        description: Release tag containing the Windows editor ZIP used as the portable Vita support payload
+        required: true
+        default: v0.2
+
+permissions:
+  contents: read
+
+jobs:
+  editor:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            host: linux
+            arch: x86_64
+            build: platform/vita/tools/build_linux_editor.sh
+            payload: _build/editor-linux/Godot4Vita
+            artifact: Godot4Vita-v0.3-Linux-x86_64.zip
+          - runner: macos-14
+            host: macos
+            arch: universal
+            build: platform/vita/tools/build_macos_editor.sh
+            payload: _build/editor-macos/Godot4Vita.app
+            artifact: Godot4Vita-v0.3-macOS-universal.zip
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools (Linux)
+        if: matrix.host == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libx11-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev libglu1-mesa-dev libasound2-dev libpulse-dev libudev-dev libxi-dev libxrandr-dev
+          python -m pip install scons
+
+      - name: Install build tools (macOS)
+        if: matrix.host == 'macos'
+        run: python -m pip install scons
+
+      - name: Download portable Vita support payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUPPORT_TAG: ${{ inputs.support_release }}
+        shell: bash
+        run: |
+          mkdir -p _build/support-download _build/support
+          gh release download "$SUPPORT_TAG" --pattern '*Windows-x64.zip' --dir _build/support-download
+          python - <<'PY'
+          import pathlib, zipfile
+          source = next(pathlib.Path('_build/support-download').glob('*.zip'))
+          with zipfile.ZipFile(source) as archive:
+              archive.extractall('_build/support-unpacked')
+          roots = [p for p in pathlib.Path('_build/support-unpacked').iterdir() if p.is_dir()]
+          if len(roots) != 1:
+              raise SystemExit(f'Expected one support root, got {roots}')
+          import shutil
+          shutil.copytree(roots[0], '_build/support', dirs_exist_ok=True)
+          PY
+          test -f _build/support/vita/templates/vita_release.zip
+          cp platform/vita/editor/addons/psvita/platform.gd _build/support/vita/platform.gd
+          cp platform/vita/editor/addons/psvita/defaults_inspector.gd _build/support/vita/defaults_inspector.gd
+          cp platform/vita/editor/addons/psvita/trophy_panel.gd _build/support/vita/trophy_panel.gd
+          cp platform/vita/editor/addons/psvita/trophy_tools.gd _build/support/vita/trophy_tools.gd
+
+      - name: Build editor
+        shell: bash
+        run: ${{ matrix.build }}
+
+      - name: Package distribution
+        shell: bash
+        run: |
+          python platform/vita/tools/package_editor_distribution.py \
+            --platform '${{ matrix.host }}' --arch '${{ matrix.arch }}' \
+            --payload '${{ matrix.payload }}' --support _build/support \
+            --output 'releases/${{ matrix.artifact }}'
+
+      - name: Packaging tests
+        run: python platform/vita/tools/tests/test_package_editor_distribution.py
+
+      - name: Linux Vita export smoke test
+        if: matrix.host == 'linux'
+        shell: bash
+        run: |
+          cp -a _build/support/vita _build/editor-linux/vita
+          _build/editor-linux/Godot4Vita --headless --version
+          _build/editor-linux/Godot4Vita --headless --path _build/support/Exemplo \
+            --export-release 'PS Vita' "$RUNNER_TEMP/LinuxValidation.vpk"
+          python - <<'PY'
+          import os, pathlib, zipfile
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          with zipfile.ZipFile(temp / 'LinuxValidation.vpk') as archive:
+              assert archive.testzip() is None
+              required = {'eboot.bin', 'libgodot.so', 'sce_sys/param.sfo', 'game_data_folder.cfg'}
+              assert required <= set(archive.namelist())
+          pck = temp / 'exemplovita' / 'game_data' / 'game.pck'
+          assert pck.read_bytes()[:4] == b'GDPC'
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Godot4Vita-${{ matrix.host }}-${{ matrix.arch }}
+          path: |
+            releases/${{ matrix.artifact }}
+            releases/${{ matrix.artifact }}.sha256

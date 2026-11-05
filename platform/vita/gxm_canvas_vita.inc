@@ -3,8 +3,23 @@
 // loader already exports (flat and textured quads), so this file needs no
 // new loader symbols. Triangles are sent as quads with a repeated vertex.
 
+#include "gxm_shader_translator_vita.inc"
+
 class GXMCanvas : public RasterizerCanvasDummy {
     GXMTextureStorage *storage;
+    GXMMaterialStorage *materials = nullptr;
+    HashSet<RID> diagnosed_shaders;
+    HashSet<RID> unshaded_rect_diagnostics;
+    HashMap<RID, int> compiled_shaders;
+    HashMap<RID, String> shaders_awaiting_compile;
+    int active_shader = 0;
+    void *active_screen = nullptr;
+    bool drawing_screen_target = false;
+    bool native_screen_shader_ready = false;
+    VitaGXMCanvasUniform active_uniforms[48];
+    unsigned active_uniform_count = 0;
+    VitaGXMCanvasSampler active_samplers[4];
+    unsigned active_sampler_count = 0;
     unsigned int logged_rects = 0;
 
     struct PolygonData {
@@ -76,6 +91,13 @@ class GXMCanvas : public RasterizerCanvasDummy {
             xy[2 * i] = s[i].x; xy[2 * i + 1] = s[i].y;
             st[2 * i] = uv ? uv[i].x : 0.0f; st[2 * i + 1] = uv ? uv[i].y : 0.0f;
         }
+        if (active_shader > 0) {
+            if (vita_gxm_canvas_shader_draw(active_shader, tex.gpu, active_screen, xy, st,
+                    gxm_color(color), active_uniforms, active_uniform_count,
+                    active_samplers, active_sampler_count)) {
+                return;
+            }
+        }
         if (tex.gpu) {
             vita_gxm_texture_quad(tex.gpu, xy, st, gxm_color(color), tex.linear);
         } else {
@@ -100,7 +122,16 @@ class GXMCanvas : public RasterizerCanvasDummy {
         Vector2 s[4];
         for (int i = 0; i < 4; i++) s[i] = to_screen(xf, p[i], snap);
         if (!tex.gpu) {
-            emit_quad(tex, s, nullptr, color);
+            if (active_shader > 0) {
+                // ColorRect/PanelContainer: UV must span the local quad.
+                // Passing null used to set every UV to zero, making all
+                // screen samplers read a single pixel.
+                const Vector2 full_uv[4] = { Vector2(0, 0), Vector2(1, 0),
+                        Vector2(1, 1), Vector2(0, 1) };
+                emit_quad(tex, s, full_uv, color);
+            } else {
+                emit_quad(tex, s, nullptr, color);
+            }
             return;
         }
         const Vector2 a = src.position / tex.size, b = (src.position + src.size) / tex.size;
@@ -140,6 +171,27 @@ class GXMCanvas : public RasterizerCanvasDummy {
         Tex tex;
         if (!resolve_texture(rect->texture, item, default_filter, tex)) return;
         if (!tex.gpu) {
+            // ColorRect + ShaderMaterial without a compiled native program
+            // is NOT equivalent to its Godot GLSL fragment output. Painting
+            // its raw opaque color covers the scene (e.g. procedural alpha
+            // fog, animated overlays). Do not invent an opaque replacement.
+            // Keep textured sprites unaffected, and restore normal drawing
+            // as soon as the GXP program becomes valid.
+            if (active_shader <= 0 && materials) {
+                const RID material = item->material.is_valid() ? item->material :
+                        (item->material_owner ? item->material_owner->material : RID());
+                const RID shader = materials->shader_for_material(material);
+                if (shader.is_valid()) {
+                    if (!unshaded_rect_diagnostics.has(shader)) {
+                        unshaded_rect_diagnostics.insert(shader);
+                        fprintf(stderr, "[gxm2d-shader] no-GXP procedural/untextured rectangle suppressed: path=%s size=%.0fx%.0f\n",
+                                materials->shader_path(shader).utf8().get_data(),
+                                rect->rect.size.x, rect->rect.size.y);
+                        fflush(stderr);
+                    }
+                    return;
+                }
+            }
             emit_rect(tex, xf, rect->rect, Rect2(), color);
             return;
         }
@@ -438,6 +490,144 @@ class GXMCanvas : public RasterizerCanvasDummy {
 
 public:
     explicit GXMCanvas(GXMTextureStorage *p_storage) : storage(p_storage) {}
+    void set_material_storage(GXMMaterialStorage *p_materials) { materials = p_materials; }
+    void process_pending_shader() {
+        // Compile ONLY at the start of a frame, with NO active GXM scene.
+        // The former implementation called SceShaccCg while rendering an
+        // item, inside sceGxmBeginScene, and entered a kernel compiler abort.
+        if (!vita_gxm_canvas_shader_compiler_enabled() || shaders_awaiting_compile.is_empty()) return;
+        // The loader independently enforces this guard. Keep the shader
+        // queued if another viewport has an active target scene.
+        if (!vita_gxm_canvas_compiler_idle()) return;
+        RID shader;
+        String cg;
+        for (const KeyValue<RID, String> &pair : shaders_awaiting_compile) {
+            shader = pair.key;
+            cg = pair.value;
+            break;
+        }
+        if (!shader.is_valid()) return;
+        shaders_awaiting_compile.erase(shader);
+        fprintf(stderr, "[gxm2d-shader] compile scheduling shader=%llu cg_bytes=%d outside_scene=1\n",
+                (unsigned long long)shader.get_id(), cg.utf8().length());
+        const CharString source_for_log = cg.utf8();
+        fprintf(stderr, "[gxm2d-shader] Cg source BEGIN\n%s[gxm2d-shader] Cg source END\n",
+                source_for_log.get_data());
+        fflush(stderr);
+        const CharString utf8 = cg.utf8();
+        int program = vita_gxm_canvas_shader_create(utf8.get_data());
+        compiled_shaders[shader] = program;
+        if (program > 0 && materials &&
+                materials->shader_get_code(shader).contains("hint_screen_texture")) {
+            native_screen_shader_ready = true;
+        }
+        fprintf(stderr, "[gxm2d-shader] compile result shader=%llu native_program=%d\n",
+                (unsigned long long)shader.get_id(), program);
+        fflush(stderr);
+    }
+    void prepare_material(const Item *item) {
+        active_shader = 0;
+        active_screen = nullptr;
+        active_uniform_count = 0;
+        active_sampler_count = 0;
+        if (!materials || !vita_gxm_canvas_shader_compiler_enabled()) return;
+        const RID material = item->material.is_valid() ? item->material :
+                (item->material_owner ? item->material_owner->material : RID());
+        if (!material.is_valid()) return;
+        RID shader = materials->shader_for_material(material);
+        if (!shader.is_valid()) return;
+        const int *previous = compiled_shaders.getptr(shader);
+        if (previous) {
+            active_shader = *previous;
+        } else {
+            String reason;
+            const String source = materials->shader_get_code(shader);
+            const String cg = GXMCanvasShaderTranslator::to_cg(source, &reason);
+            if (!cg.is_empty()) {
+                // Request an out-of-scene compile next frame. Never invoke
+                // SceShaccCg on the render-submit call stack.
+                shaders_awaiting_compile.insert(shader, cg);
+            }
+            compiled_shaders.insert(shader, 0);
+            fprintf(stderr, "[gxm2d-shader] path=%s code_bytes=%d queued=%d reason=%s\n",
+                    materials->shader_path(shader).utf8().get_data(),
+                    source.utf8().length(), !cg.is_empty(), reason.utf8().get_data());
+            fflush(stderr);
+        }
+        if (active_shader <= 0) return;
+        if (materials->shader_get_code(shader).contains("hint_screen_texture")) {
+            if (!drawing_screen_target) {
+                // Defer this screen shader until its capture target is enabled.
+                active_shader = 0;
+                return;
+            }
+            active_screen = vita_gxm_canvas_screen_snapshot();
+            if (!active_screen) {
+                active_shader = 0;
+                return;
+            }
+        }
+        const HashMap<StringName, Variant> *params = materials->material_parameters(material);
+        const PackedStringArray sampler_names = GXMCanvasShaderTranslator::additional_sampler_names(
+                materials->shader_get_code(shader));
+        for (int i = 0; i < sampler_names.size() && i < 4; ++i) {
+            const StringName sampler_name = sampler_names[i];
+            RID texture;
+            if (params) {
+                const Variant *candidate = params->getptr(sampler_name);
+                if (candidate && candidate->get_type() == Variant::RID) texture = *candidate;
+            }
+            if (!texture.is_valid()) texture = materials->shader_get_default_texture_parameter(shader, sampler_name, 0);
+            active_samplers[active_sampler_count++].texture = texture.is_valid() ? storage->get_gpu(texture) : nullptr;
+        }
+        if (params) {
+            for (const KeyValue<StringName, Variant> &param : *params) {
+                if (active_uniform_count >= 46) break;
+                VitaGXMCanvasUniform &u = active_uniforms[active_uniform_count];
+                memset(&u, 0, sizeof(u));
+                const CharString name = String(param.key).utf8();
+                strncpy(u.name, name.get_data(), sizeof(u.name) - 1);
+                switch (param.value.get_type()) {
+                    case Variant::FLOAT:
+                    case Variant::INT:
+                        u.value[0] = float(param.value); u.components = 1; break;
+                    case Variant::BOOL:
+                        u.value[0] = bool(param.value) ? 1.0f : 0.0f; u.components = 1; break;
+                    case Variant::COLOR: {
+                        const Color c = param.value;
+                        u.value[0] = c.r; u.value[1] = c.g;
+                        u.value[2] = c.b; u.value[3] = c.a; u.components = 4;
+                    } break;
+                    case Variant::VECTOR2: {
+                        const Vector2 v = param.value;
+                        u.value[0] = v.x; u.value[1] = v.y; u.components = 2;
+                    } break;
+                    case Variant::VECTOR3: {
+                        const Vector3 v = param.value;
+                        u.value[0] = v.x; u.value[1] = v.y; u.value[2] = v.z; u.components = 3;
+                    } break;
+                    case Variant::VECTOR4: {
+                        const Vector4 v = param.value;
+                        u.value[0] = v.x; u.value[1] = v.y;
+                        u.value[2] = v.z; u.value[3] = v.w; u.components = 4;
+                    } break;
+                    default: break;
+                }
+                if (u.components) active_uniform_count++;
+            }
+        }
+        // Godot canvas builtins are updated once per draw, including while
+        // the scene tree is paused (shader TIME is wall-clock elapsed).
+        VitaGXMCanvasUniform &time = active_uniforms[active_uniform_count++];
+        memset(&time, 0, sizeof(time));
+        strcpy(time.name, "TIME"); time.value[0] = OS::get_singleton()->get_ticks_usec() / 1000000.0f;
+        time.components = 1;
+        VitaGXMCanvasUniform &pixel = active_uniforms[active_uniform_count++];
+        memset(&pixel, 0, sizeof(pixel));
+        strcpy(pixel.name, "SCREEN_PIXEL_SIZE");
+        pixel.value[0] = 1.f / 960.f; pixel.value[1] = 1.f / 544.f;
+        pixel.components = 2;
+    }
 
     PolygonID request_polygon(const Vector<int> &p_indices, const Vector<Point2> &p_points, const Vector<Color> &p_colors,
             const Vector<Point2> &p_uvs = Vector<Point2>(), const Vector<int> &p_bones = Vector<int>(),
@@ -502,17 +692,62 @@ public:
                     target_size.x, target_size.y, scale_x, scale_y);
             fflush(stderr);
         }
+        drawing_screen_target = false;
         if (!offscreen) {
-            vita_gxm_begin(gxm_color(storage->render_target_get_clear_request_color(target)));
+            process_pending_shader();
+            const uint32_t clear = gxm_color(storage->render_target_get_clear_request_color(target));
+            // Allocate the expensive screen capture targets only after at least
+            // one screen-reading program has compiled successfully.
+            if (materials && native_screen_shader_ready &&
+                    vita_gxm_canvas_shader_compiler_enabled()) {
+                drawing_screen_target = vita_gxm_canvas_screen_begin(clear) != 0;
+            }
+            if (!drawing_screen_target) vita_gxm_begin(clear);
             storage->render_target_disable_clear_request(target);
         }
         const uint64_t started_us = OS::get_singleton()->get_ticks_usec();
         const double now = double(started_us) / 1000000.0;
         for (Item *item = items; item; item = item->next) {
+            prepare_material(item);
+            // A screen-reading ColorRect often covers the entire scene.
+            // Without a compiled fragment shader its raw white draw command
+            // hides the UI underneath (Split Memories opening-menu regression).
+            // Keep it transparent until native GXP has compiled. This is an
+            // engine-level fail-safe, not a replacement for the original shader.
+            if (materials) {
+                const RID material = item->material.is_valid() ? item->material :
+                        (item->material_owner ? item->material_owner->material : RID());
+                const RID shader = materials->shader_for_material(material);
+                if (shader.is_valid() && active_shader <= 0 &&
+                        materials->shader_get_code(shader).contains("hint_screen_texture")) {
+                    if (!diagnosed_shaders.has(shader)) {
+                        diagnosed_shaders.insert(shader);
+                        fprintf(stderr, "[gxm2d-shader] transparency fallback: screen sampler unavailable path=%s\n",
+                                materials->shader_path(shader).utf8().get_data());
+                        fflush(stderr);
+                    }
+                    continue;
+                }
+            }
             if (item->material.is_valid() || (item->material_owner && item->material_owner->material.is_valid()) || item->canvas_group_owner) {
                 // Shader/material effects are unsupported, but discarding the
                 // whole item makes normal sprites invisible. Draw the unshaded
                 // command as a fallback; transparencies still use vertex tint.
+                if (materials) {
+                    const RID material = item->material.is_valid() ? item->material :
+                            (item->material_owner ? item->material_owner->material : RID());
+                    const RID shader = materials->shader_for_material(material);
+                    if (shader.is_valid() && !diagnosed_shaders.has(shader)) {
+                        diagnosed_shaders.insert(shader);
+                        const String source = materials->shader_get_code(shader);
+                        const bool screen = source.contains("hint_screen_texture");
+                        const bool timed = source.contains("TIME");
+                        fprintf(stderr, "[gxm2d-shader] path=%s bytes=%d screen=%d time=%d status=not-compiled\n",
+                                materials->shader_path(shader).utf8().get_data(),
+                                source.utf8().length(), screen, timed);
+                        fflush(stderr);
+                    }
+                }
                 WARN_PRINT_ONCE("GXM: drawing canvas item without unsupported material/group effects.");
             }
             Rect2i clip = item->final_clip_owner ? Rect2i(item->final_clip_owner->final_clip_rect) : Rect2i();

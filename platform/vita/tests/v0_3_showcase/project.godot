@@ -1,0 +1,60 @@
+[application]
+config/name="Godot 4 Vita v0.3 Showcase"
+run/main_scene="res://main.tscn"
+
+[display]
+window/size/viewport_width=960
+window/size/viewport_height=544
+window/size/window_width_override=960
+window/size/window_height_override=544
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+vita/gxm3d=true
+vita/tilt_shift=true
+vita/tilt_shift_top=0.34
+vita/tilt_shift_bottom=0.78
+vita/tilt_shift_strength=0.9
+vita/keep_aspect=true
+
+[showcase]
+version="0.3-development"
+
+[threading]
+worker_pool/max_threads=2
+
+[input]
+toggle_first_person={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":2)]
+}
+toggle_animation={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":3)]
+}
+switch_to_2d={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":4)]
+}
+switch_to_3d={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":6)]
+}
+jump={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":0)]
+}
+roll={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":1)]
+}
+giant_grow={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":11)]
+}
+giant_shrink={
+"deadzone": 0.5,
+"events": [Object(InputEventJoypadButton,"button_index":12)]
+}
+

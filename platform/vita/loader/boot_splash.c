@@ -117,7 +117,10 @@ static BootFrame *decode_frames;
 static int decoder_worker(SceSize argc, void *argv) {
     const unsigned id = *(const unsigned *)argv;
     (void)argc;
-    for (unsigned n = id; !decoders_stop; n += DECODERS) {
+    /* Decode at most one complete DVAN animation. The old unbounded loop
+     * repeated PNG frames modulo BOOT_FRAMES whenever so_load took over 6s,
+     * causing the logo to reappear after it had animated off screen. */
+    for (unsigned n = id; n < BOOT_FRAMES && !decoders_stop; n += DECODERS) {
         /* Each decoder owns ring slots id*2 and id*2+1. */
         int slot = -1;
         while (!decoders_stop && slot < 0) {
@@ -129,7 +132,7 @@ static int decoder_worker(SceSize argc, void *argv) {
         }
         if (slot < 0) break;
         ring_busy[slot] = 1;
-        if (!decode_frame(&decode_frames[n % BOOT_FRAMES], ring_pixels[slot])) {
+        if (!decode_frame(&decode_frames[n], ring_pixels[slot])) {
             decoder_failed = 1;
             ring_busy[slot] = 0;
             break;
@@ -186,10 +189,13 @@ static int splash_worker(SceSize argc, void *argv) {
 
     {
         const uint64_t frame_us = 1000000u / BOOT_FPS;
-        uint64_t next_due = sceKernelGetProcessTimeWide();
+        const uint64_t first_due = sceKernelGetProcessTimeWide();
+        uint64_t next_due = first_due;
         unsigned late = 0;
-        for (unsigned n = 0;; ++n) {
-            if (splash_stop_requested && displayed >= BOOT_FRAMES) break;
+        /* Present exactly 180 unique frames, never a second pass. Decode
+         * runs in two independent worker threads while the main core maps
+         * libgodot.so. Nominal deadline is 33.333ms/frame (30 FPS). */
+        for (unsigned n = 0; n < BOOT_FRAMES; ++n) {
             const unsigned owner = n % DECODERS;
             int slot = -1;
             while (slot < 0 && !decoder_failed) {
@@ -226,7 +232,18 @@ static int splash_worker(SceSize argc, void *argv) {
             shown_slot = slot;
             ++displayed;
         }
-        debugPrintf("[boot-anim] presenter done frames=%u late=%u\n", displayed, late);
+        uint64_t total_us = sceKernelGetProcessTimeWide() - first_due;
+        unsigned actual_fps_x10 = total_us ? (unsigned)((10000000ull * displayed) / total_us) : 0;
+        debugPrintf("[boot-anim] presenter done frames=%u late=%u elapsed_ms=%llu fps_x10=%u (target=30)\n",
+                displayed, late, (unsigned long long)(total_us / 1000u), actual_fps_x10);
+        /* Frame 179 is fully black. Keep it displayed while the engine
+         * completes loading, rather than restarting the logo animation.
+         * Stop is requested by main.c immediately before Godot initializes
+         * its own GXM display context. */
+        if (displayed == BOOT_FRAMES) {
+            debugPrintf("[boot-anim] animation completed once; hold final black frame\n");
+            while (!splash_stop_requested) sceKernelDelayThread(2000);
+        }
     }
 
 cleanup:

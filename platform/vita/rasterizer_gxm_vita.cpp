@@ -4,6 +4,7 @@
 #include "servers/rendering/dummy/rasterizer_canvas_dummy.h"
 #include "servers/rendering/dummy/storage/texture_storage.h"
 #include <stdio.h>
+#include <string.h>
 
 static uint32_t gxm_color(const Color &p_color) {
     Color c = p_color.clamp();
@@ -327,15 +328,19 @@ RasterizerGXMVita::RasterizerGXMVita() {
     auto *gxm_storage = memnew(GXMTextureStorage);
     texture_storage = gxm_storage;
     canvas = memnew(GXMCanvas(gxm_storage));
+    // Use real source/parameter retention for both GXM2D and GXM3D.
+    // A plain RendererDummy::MaterialStorage silently drops all shader code.
+    memdelete(material_storage);
+    auto *gxm_materials = memnew(GXMMaterialStorage);
+    material_storage = gxm_materials;
+    static_cast<GXMCanvas *>(canvas)->set_material_storage(gxm_materials);
     FILE *experimental = fopen("app0:gxm3d.cfg", "rb");
     if (experimental) {
         fclose(experimental);
         memdelete(scene);
         memdelete(mesh_storage);
-        memdelete(material_storage);
         memdelete(light_storage);
         auto *gxm_meshes = memnew(GXMMeshStorage);
-        auto *gxm_materials = memnew(GXMMaterialStorage);
         auto *gxm_lights = memnew(GXMLightStorage);
         mesh_storage = gxm_meshes;
         material_storage = gxm_materials;

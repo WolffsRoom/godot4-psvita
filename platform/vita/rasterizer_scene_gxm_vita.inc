@@ -463,10 +463,102 @@ public:
     }
 };
 
+// Native GXM must retain the actual Godot ShaderMaterial source and uniforms.
+ // RendererDummy parses parameter lists, but intentionally discards shader code;
+ // without this registry the canvas cannot compile programs or bind uniforms.
 class GXMMaterialStorage : public RendererDummy::MaterialStorage {
     HashMap<RID, HashMap<StringName, Variant>> parameters;
+    HashMap<RID, String> shader_sources;
+    HashMap<RID, RID> material_shaders;
+    HashMap<RID, String> shader_paths;
+    HashMap<RID, HashMap<StringName, Variant>> shader_defaults;
+    bool has_screen_sampling_shader = false;
+    static Variant parse_shader_default(const String &type, const String &expr, bool color_hint) {
+        const String value = expr.strip_edges();
+        if (type == "float") return value.to_float();
+        if (type == "int") return value.to_int();
+        if (type == "bool") return value == "true";
+        int count = 0;
+        if (type == "vec2") count = 2;
+        if (type == "vec3") count = 3;
+        if (type == "vec4") count = 4;
+        if (!count) return Variant();
+        int a = value.find("("), b = value.rfind(")");
+        if (a < 0 || b <= a) return Variant();
+        const PackedStringArray args = value.substr(a + 1, b - a - 1).split(",");
+        if (args.size() != count && args.size() != 1) return Variant();
+        float values[4] = {};
+        for (int j = 0; j < count; j++) {
+            const String arg = args[args.size() == 1 ? 0 : j].strip_edges();
+            if (!arg.is_valid_float() && !arg.is_valid_int()) return Variant();
+            values[j] = arg.to_float();
+        }
+        if (count == 2) return Vector2(values[0], values[1]);
+        if (count == 3) return Vector3(values[0], values[1], values[2]);
+        if (color_hint) return Color(values[0], values[1], values[2], values[3]);
+        return Vector4(values[0], values[1], values[2], values[3]);
+    }
 public:
     HashMap<RID, uint32_t> versions;
+    void shader_set_code(RID shader, const String &code) override {
+        RendererDummy::MaterialStorage::shader_set_code(shader, code);
+        shader_sources.insert(shader, code);
+        shader_defaults.erase(shader);
+        const PackedStringArray lines = code.split("\n");
+        for (const String &original : lines) {
+            const String line = original.strip_edges();
+            if (!line.begins_with("uniform ") || !line.contains("=")) continue;
+            const int semicolon = line.find(";");
+            const String decl = semicolon >= 0 ? line.substr(0, semicolon) : line;
+            const int equal = decl.find("=");
+            if (equal < 0) continue;
+            const String before = decl.substr(8, equal - 8).strip_edges();
+            const PackedStringArray words = before.split(" ", false);
+            if (words.size() < 2) continue;
+            const String type = words[0], name = words[1];
+            if (type == "sampler2D" || type == "samplerCube") continue;
+            const Variant def = parse_shader_default(type, decl.substr(equal + 1),
+                    decl.contains("source_color"));
+            if (def.get_type() != Variant::NIL) shader_defaults[shader][name] = def;
+        }
+        if (code.contains("hint_screen_texture")) has_screen_sampling_shader = true;
+    }
+    Variant shader_get_parameter_default(RID shader, const StringName &param) const override {
+        const auto *defaults = shader_defaults.getptr(shader);
+        if (!defaults) return Variant();
+        const Variant *value = defaults->getptr(param);
+        return value ? *value : Variant();
+    }
+    const HashMap<StringName, Variant> *shader_default_params(RID shader) const {
+        return shader_defaults.getptr(shader);
+    }
+    bool needs_screen_backbuffer() const { return has_screen_sampling_shader; }
+    String shader_get_code(RID shader) const override {
+        const String *code = shader_sources.getptr(shader);
+        return code ? *code : String();
+    }
+    void shader_set_path_hint(RID shader, const String &path) override {
+        shader_paths.insert(shader, path);
+    }
+    String shader_path(RID shader) const {
+        const String *path = shader_paths.getptr(shader);
+        return path ? *path : String();
+    }
+    void shader_free(RID shader) override {
+        shader_sources.erase(shader);
+        shader_paths.erase(shader);
+        shader_defaults.erase(shader);
+        RendererDummy::MaterialStorage::shader_free(shader);
+    }
+    void material_set_shader(RID material, RID shader) override {
+        RendererDummy::MaterialStorage::material_set_shader(material, shader);
+        material_shaders.insert(material, shader);
+        versions[material]++;
+    }
+    RID shader_for_material(RID material) const {
+        const RID *rid = material_shaders.getptr(material);
+        return rid ? *rid : RID();
+    }
     void material_set_param(RID rid, const StringName &name, const Variant &value) override {
         parameters[rid][name] = value;
         versions[rid]++;
@@ -481,9 +573,13 @@ public:
         const auto *value = map->getptr(name);
         return value ? *value : Variant();
     }
+    const HashMap<StringName, Variant> *material_parameters(RID material) const {
+        return parameters.getptr(material);
+    }
     void material_free(RID rid) override {
         parameters.erase(rid);
         versions.erase(rid);
+        material_shaders.erase(rid);
         RendererDummy::MaterialStorage::material_free(rid);
     }
 };
@@ -965,8 +1061,17 @@ public:
         float light_floor = float(settings->get_setting("rendering/vita/light_floor", 0.12f));
         float brightness = CLAMP(float(settings->get_setting("rendering/vita/brightness", 1.0f)), 0.4f, 2.0f);
         bool distance_darkening = bool(settings->get_setting("rendering/vita/distance_darkening", true));
+        bool bloom = bool(settings->get_setting("rendering/vita/bloom", true));
+        float bloom_strength = CLAMP(float(settings->get_setting("rendering/vita/bloom_strength", 0.8f)), 0.0f, 1.5f);
         bool vertex_lighting = lighting && bool(settings->get_setting("rendering/vita/vertex_lighting", true)) && vita_gxm_vertex_lighting_available();
-        unsigned vertex_budget = 3000, lit_draws = 0;
+        // The multiplicative vertex-light pass roughly doubles the draw cost
+        // of a surface. Reserve it for geometry where the Vita display can
+        // actually show the extra gradient; distant/small objects retain the
+        // much cheaper per-object light approximation.
+        float vertex_light_distance = MAX(float(settings->get_setting("rendering/vita/vertex_lighting_distance", 12.0f)), 0.0f);
+        float vertex_light_min_radius = MAX(float(settings->get_setting("rendering/vita/vertex_lighting_min_apparent_radius", 0.018f)), 0.0f);
+        unsigned vertex_budget = CLAMP(int(settings->get_setting("rendering/vita/vertex_lighting_vertex_budget", 3000)), 0, 12000);
+        unsigned lit_draws = 0;
         shadow_rays_left = lighting ? int(settings->get_setting("rendering/vita/shadow_rays", 96)) : 0;
         shadow_rays_cast = 0;
         space_state = nullptr;
@@ -1038,6 +1143,8 @@ public:
         draw_candidates.sort_custom<DrawCandidate::Sort>();
         // Depth along the camera's horizontal heading orders the transparent pass.
         const Vector3 eye = camera->main_transform.origin;
+        const Transform3D view_transform = camera->main_transform.affine_inverse();
+        const Projection view_projection = camera->main_projection * Projection(view_transform);
         Vector3 view_forward = -camera->main_transform.basis.get_column(2);
         view_forward.y = 0.0f;
         view_forward = view_forward.length_squared() > 0.0001f ? view_forward.normalized() : -camera->main_transform.basis.get_column(2);
@@ -1057,7 +1164,7 @@ public:
             if (attempted + info.triangle_count > (structural ? configured_budget : budget)) continue;
             drawn_now.insert(instance);
             if (structural) structural_drawn++;
-            Projection mvp = camera->main_projection * Projection(camera->main_transform.affine_inverse() * instance->transform);
+            Projection mvp = view_projection * Projection(instance->transform);
             for (int column = 0; column < 4; column++) {
                 mvp[column][0] *= fit_x;
                 mvp[column][1] *= fit_y;
@@ -1076,7 +1183,7 @@ public:
                 RID material = instance->material.is_valid() ? instance->material :
                         (s < instance->materials.size() && instance->materials[s].is_valid() ? instance->materials[s] : surface.material);
                 const MaterialInfo &material_props = material_info(material);
-                if (material_props.sparkle) {
+                if (material_props.sparkle && bloom) {
                     // item_spark.gdshader: pulsing round billboard instead of the
                     // white quad its mesh would otherwise draw.
                     float pulse = Math::abs(Math::sin(float(OS::get_singleton()->get_ticks_msec()) * 0.001f * material_props.pulse_speed));
@@ -1100,7 +1207,9 @@ public:
                 // from a second, multiplicative pass; the first pass then only
                 // carries the distance fade. Far, skinned or transparent
                 // surfaces keep the cheaper per-object tint.
+                float apparent_radius = draw_candidates[i].radius / MAX(draw_candidates[i].center_distance, 0.25f);
                 bool vertex_lit = vertex_lighting && !bones && color.a > 0.99f &&
+                        draw_candidates[i].center_distance <= vertex_light_distance && apparent_radius >= vertex_light_min_radius &&
                         !(tex.get_type() == Variant::RID && textures->texture_has_alpha(tex));
                 const GXMMeshStorage::FlatSurface *flat = nullptr;
                 if (!bones) {
@@ -1133,6 +1242,16 @@ public:
                     color.r = MIN(1.0f, color.r + glow.r);
                     color.g = MIN(1.0f, color.g + glow.g);
                     color.b = MIN(1.0f, color.b + glow.b);
+                    if (bloom && glows.size() < 64) {
+                        float peak = MAX(glow.r, MAX(glow.g, glow.b));
+                        if (peak > 0.015f) {
+                            Glow halo;
+                            halo.position = instance->world_bounds.get_center();
+                            halo.half_size = CLAMP(instance->world_bounds.size.length() * 0.12f, 0.12f, 0.55f);
+                            halo.color = Color(glow.r / MAX(peak, 1.0f), glow.g / MAX(peak, 1.0f), glow.b / MAX(peak, 1.0f), CLAMP(peak * bloom_strength, 0.08f, 0.65f));
+                            glows.push_back(halo);
+                        }
+                    }
                 }
                 // Vertex-color tint; channels above 1 brighten toward white.
                 if (flat) {
@@ -1290,7 +1409,7 @@ public:
                 };
                 // Godot maps the decal texture with U along +X and V along +Z.
                 const float uv[12] = { 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1 };
-                Projection mvp = camera->main_projection * Projection(camera->main_transform.affine_inverse() * decal_instance->transform);
+                Projection mvp = view_projection * Projection(decal_instance->transform);
                 for (int column = 0; column < 4; column++) {
                     mvp[column][0] *= fit_x;
                     mvp[column][1] *= fit_y;
@@ -1322,7 +1441,10 @@ public:
         // lamp's own mesh does not hide it.
         if (lighting && bool(settings->get_setting("rendering/vita/light_flares", true))) {
             for (const ActiveLight &light : active_lights) {
-                if (light.type == RSE::LIGHT_DIRECTIONAL) continue;
+                // Spot lights originate below many ceiling fixtures because
+                // they represent the projected cone, not the visible bulb.
+                // Only the fixture's omni light should receive a halo.
+                if (light.type != RSE::LIGHT_OMNI) continue;
                 float peak = MAX(light.color.r, MAX(light.color.g, light.color.b));
                 if (peak <= 0.01f) continue;
                 Vector3 to_camera = camera->main_transform.origin - light.position;
@@ -1341,7 +1463,7 @@ public:
             vita_gxm_blend_add(1);
             Vector3 right = camera->main_transform.basis.get_column(0).normalized();
             Vector3 up = camera->main_transform.basis.get_column(1).normalized();
-            Projection mvp = camera->main_projection * Projection(camera->main_transform.affine_inverse());
+            Projection mvp = view_projection;
             for (int column = 0; column < 4; column++) {
                 mvp[column][0] *= fit_x;
                 mvp[column][1] *= fit_y;

@@ -189,6 +189,10 @@ class FileAccessPack : public FileAccess {
 	uint64_t off;
 
 	Ref<FileAccess> f;
+#ifdef VITA_ENABLED
+	mutable uint64_t vita_last_read_end = UINT64_MAX;
+	mutable uint32_t vita_sequential_reads = 0;
+#endif
 	virtual Error open_internal(const String &p_path, int p_mode_flags) override;
 	virtual uint64_t _get_modified_time(const String &p_file) override { return 0; }
 	virtual uint64_t _get_access_time(const String &p_file) override { return 0; }

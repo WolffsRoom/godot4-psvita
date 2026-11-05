@@ -36,6 +36,10 @@
 #include "core/os/os.h"
 #include "core/version.h"
 
+#ifdef VITA_ENABLED
+#include "platform/vita/vita_pck_prefetch.h"
+#endif
+
 Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset, const Vector<uint8_t> &p_decryption_key) {
 	for (int i = 0; i < sources.size(); i++) {
 		if (sources[i]->try_open_pack(p_path, p_replace_files, p_offset, p_decryption_key)) {
@@ -203,6 +207,9 @@ void PackedData::_free_packed_dirs(PackedDir *p_dir) {
 }
 
 PackedData::~PackedData() {
+#ifdef VITA_ENABLED
+	vita_pck_prefetch_shutdown();
+#endif
 	if (singleton == this) {
 		singleton = nullptr;
 	}
@@ -483,14 +490,41 @@ uint64_t FileAccessPack::get_buffer(uint8_t *p_dst, uint64_t p_length) const {
 		to_read = (int64_t)pf.size - (int64_t)pos;
 	}
 
-	pos += to_read;
-
 	if (to_read <= 0) {
 		return 0;
 	}
-	f->get_buffer(p_dst, to_read);
-
-	return to_read;
+	uint64_t absolute_offset = off + pos;
+	uint64_t read = 0;
+#ifdef VITA_ENABLED
+	bool can_prefetch = !pf.bundle && !pf.encrypted;
+	if (can_prefetch && vita_pck_prefetch_try_read(pf.pack, absolute_offset, p_dst, to_read)) {
+		read = to_read;
+	} else
+#endif
+	{
+		// A cache hit does not advance this private file handle, so every
+		// fallback read explicitly restores its absolute position.
+		f->seek(absolute_offset);
+		read = f->get_buffer(p_dst, to_read);
+	}
+	pos += read;
+	if (read < static_cast<uint64_t>(to_read)) {
+		eof = true;
+	}
+#ifdef VITA_ENABLED
+	if (can_prefetch && read > 0) {
+		if (absolute_offset == vita_last_read_end) {
+			vita_sequential_reads++;
+		} else {
+			vita_sequential_reads = 1;
+		}
+		vita_last_read_end = absolute_offset + read;
+		if (vita_sequential_reads >= 2 && pos < pf.size) {
+			vita_pck_prefetch_schedule(pf.pack, off + pos, pf.size - pos);
+		}
+	}
+#endif
+	return read;
 }
 
 void FileAccessPack::set_big_endian(bool p_big_endian) {

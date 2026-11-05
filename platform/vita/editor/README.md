@@ -1,9 +1,13 @@
-# Editor Windows com exportação PS Vita
+# Editores desktop com exportação PS Vita
 
-A distribuição integrada está em `GodotPSV/editor-vita-integrado`, com entrada
-`Godot4Vita.exe` e suporte Vita global. Consulte `INTEGRATED_WINDOWS.md` para
-compilação e validação. As instruções abaixo descrevem a alternativa de addon
-para o editor oficial.
+As distribuições integradas usam `Godot4Vita.exe` no Windows x64,
+`Godot4Vita` no Linux x86_64 e `Godot4Vita.app` no macOS universal. Todas levam
+o mesmo suporte Vita e o mesmo template de exportação. No Windows e Linux,
+`vita/` fica ao lado do executável; no macOS, em
+`Godot4Vita.app/Contents/MacOS/vita`. Consulte `INTEGRATED_WINDOWS.md` para os
+detalhes da integração e `platform/vita/tools/build_*_editor.sh` para as
+compilações nativas. As instruções abaixo descrevem a alternativa de addon para
+o editor oficial.
 
 O complemento `addons/psvita` registra uma plataforma na janela **Projeto >
 Exportar > Adicionar > PS Vita** do Godot **4.8-dev7**. Usa a API oficial

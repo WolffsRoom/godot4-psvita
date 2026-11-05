@@ -1,7 +1,7 @@
 #ifndef __DIAG_H__
 #define __DIAG_H__
-
-// Raw-sceIo startup marker log (no malloc). See diag.c.
+void vita_init_log_paths(void);
+const char *vita_log_dir(void);
+const char *vita_data_dir(void);
 void diag(const char *s);
-
 #endif

@@ -14,6 +14,7 @@ func _run() -> void:
 	assert(preset.get("data/separate_folder") == true)
 	assert(preset.get("data/package_format") == "PCK")
 	assert(preset.get("performance/capunlocker") == "optional")
+	assert(preset.get("performance/pck_prefetch") == true)
 	for folder in ["meujogovita", "My_Game-2", "a".repeat(64)]:
 		assert(platform.valid_data_folder(folder))
 	for folder in ["", "../outside", "ux0:data/game", "CON", "nul", "COM1", "a".repeat(65), "game\n", "game\\other", "game/other", "jogo ç"]:

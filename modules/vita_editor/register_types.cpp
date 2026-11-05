@@ -10,8 +10,8 @@
 #include "editor/inspector/editor_inspector.h"
 #include "editor/plugins/editor_plugin.h"
 
-// Built-in editor plugin: registered for every project, with support files
-// resolved beside the executable rather than inside the user's project.
+// Built-in desktop editor plugin: registered for every project, with support
+// files resolved beside the executable rather than inside the user's project.
 class VitaExportPlatform : public EditorExportPlatformExtension {
 	GDCLASS(VitaExportPlatform, EditorExportPlatformExtension);
 protected:

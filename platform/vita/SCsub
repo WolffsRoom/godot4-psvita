@@ -10,6 +10,7 @@ vita_files = [
     "gl_manager_vita.cpp",
     "rasterizer_gxm_vita.cpp",
     "audio_driver_vita.cpp",
+    "vita_pck_prefetch.cpp",
     "joypad_vita.cpp",
     "vita_posix_compat.c",  # POSIX funcs newlib declares but doesn't implement.
     "vita_cpp_compat.cpp",  # ...and the ones VitaSDK declares without extern "C".

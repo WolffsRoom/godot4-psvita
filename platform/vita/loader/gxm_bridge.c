@@ -5,9 +5,11 @@
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/gxm.h>
+#include <psp2/io/fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "shacc_runtime.h"
 static int drawing;
 static int gpu_pending;
 static void wait_gpu(void);
@@ -69,7 +71,17 @@ static int clip_rect_cache[4];
 /* Offscreen render-target scene (SubViewport). */
 static int target_drawing;
 static int target_dependency;
+/* Two full-resolution render targets for native canvas screen effects. */
+static GXMTexture screen_target[2];
+static int screen_target_ready, screen_target_active, screen_target_index;
+static GXMTexture screen_snapshot;
+#define SCREEN_MIP_LEVELS 6
+static GXMTexture screen_mip[SCREEN_MIP_LEVELS];
 
+
+
+static void screen_target_present(void);
+static void canvas_shader_cleanup(void);
 static void flush_batch(void) {
     if (batch_count) {
         if (batch_kind == BATCH_TEXTURED) {
@@ -310,6 +322,7 @@ void vita_gxm_end(int present) {
     flush_batch();
     vita_gxm_scene3d_end();
     vita2d_disable_clipping();
+    if (screen_target_active) screen_target_present();
     vita2d_end_drawing();
     if (present) vita2d_swap_buffers();
     gpu_pending = 1;
@@ -374,6 +387,22 @@ void vita_gxm_finish(void) {
     if (!initialized) return;
     vita_gxm_end(0);
     wait_gpu();
+    canvas_shader_cleanup();
+    for (int k = 0; k < 2; k++) {
+        if (screen_target[k].texture) {
+            vita2d_free_texture(screen_target[k].texture);
+            texture_bytes -= screen_target[k].bytes;
+            memset(&screen_target[k], 0, sizeof(GXMTexture));
+        }
+    }
+    for (int k = 1; k < SCREEN_MIP_LEVELS; k++) {
+        if (screen_mip[k].texture) {
+            vita2d_free_texture(screen_mip[k].texture);
+            texture_bytes -= screen_mip[k].bytes;
+            memset(&screen_mip[k], 0, sizeof(GXMTexture));
+        }
+    }
+    screen_target_ready = 0;
     if (mesh_arena) { gpu_free(mesh_arena_uid); mesh_arena = NULL; mesh_arena_used = 0; }
     if (white_texture) { vita2d_free_texture(white_texture); white_texture = NULL; }
     vita2d_fini();
@@ -602,6 +631,331 @@ int vita_gxm_light_mesh_draw(void *handle, const float *mvp) {
     return 1;
 }
 /* Additive blending for glows and flares (the original shader uses blend_add). */
+
+extern const SceGxmProgram texture_v_gxp_start;
+extern SceGxmVertexProgram *_vita2d_textureVertexProgram;
+extern const SceGxmProgramParameter *_vita2d_textureWvpParam;
+
+
+/* GXM screen-texture capture: render the canvas into a GXM texture.
+ * The shader's screen sampler always points to the other surface. */
+static int screen_target_init(void) {
+    if (screen_target_ready) return 1;
+    if (!initialized) return 0;
+    for (int i = 0; i < 2; ++i) {
+        screen_target[i].texture = vita2d_create_empty_texture_rendertarget(
+                960, 544, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8);
+        if (!screen_target[i].texture) {
+            for (int k = 0; k <= i; ++k) {
+                if (screen_target[k].texture) vita2d_free_texture(screen_target[k].texture);
+                texture_bytes -= screen_target[k].bytes;
+                memset(&screen_target[k], 0, sizeof(GXMTexture));
+            }
+            fprintf(stderr, "[gxm2d-screen] allocation FAILED\n");
+            fflush(stderr);
+            return 0;
+        }
+        screen_target[i].bytes = vita_texture_allocation_bytes(960, 544, 4);
+        texture_bytes += screen_target[i].bytes;
+    }
+    const int mw[SCREEN_MIP_LEVELS] = { 960, 480, 240, 120, 60, 30 };
+    const int mh[SCREEN_MIP_LEVELS] = { 544, 272, 136, 68, 34, 17 };
+    for (int level = 1; level < SCREEN_MIP_LEVELS; ++level) {
+        screen_mip[level].texture = vita2d_create_empty_texture_rendertarget(
+                mw[level], mh[level], SCE_GXM_TEXTURE_FORMAT_A8B8G8R8);
+        if (!screen_mip[level].texture) {
+            fprintf(stderr, "[gxm2d-screen] mip allocation level=%d FAILED\n", level);
+            fflush(stderr);
+            for (int j = 1; j <= level; ++j) {
+                if (screen_mip[j].texture) vita2d_free_texture(screen_mip[j].texture);
+                texture_bytes -= screen_mip[j].bytes;
+                memset(&screen_mip[j], 0, sizeof(GXMTexture));
+            }
+            for (int j = 0; j < 2; ++j) {
+                if (screen_target[j].texture) vita2d_free_texture(screen_target[j].texture);
+                texture_bytes -= screen_target[j].bytes;
+                memset(&screen_target[j], 0, sizeof(GXMTexture));
+            }
+            return 0;
+        }
+        screen_mip[level].bytes = vita_texture_allocation_bytes(mw[level], mh[level], 4);
+        texture_bytes += screen_mip[level].bytes;
+    }
+    screen_target_ready = 1;
+    fprintf(stderr, "[gxm2d-screen] ping-pong native screen targets + 5 mip levels ready\n");
+    fflush(stderr);
+    return 1;
+}
+static void screen_target_state(void) {
+    SceGxmContext *ctx = vita2d_get_context();
+    sceGxmSetViewport(ctx, 480.f, 480.f, 272.f, -272.f, .5f, .5f);
+    vita2d_disable_clipping();
+    clip_enabled_cache = 0;
+}
+int vita_gxm_canvas_screen_begin(uint32_t color) {
+    if (!initialized || drawing || target_drawing || tilt_offscreen || !screen_target_init()) return 0;
+    if ((memory_frame++ % 600) == 0) log_free_memory("screen_capture");
+    wait_gpu();
+    screen_target_index = 0;
+    int flags = SCE_GXM_SCENE_FRAGMENT_SET_DEPENDENCY |
+            (target_dependency ? SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY : 0);
+    if (!start_scene(screen_target[0].texture, flags, "canvas_screen")) return 0;
+    target_dependency = 0;
+    screen_target_state();
+    vita2d_set_clear_color(color);
+    vita2d_clear_screen();
+    drawing = 1;
+    screen_target_active = 1;
+    screen_snapshot.texture = NULL;
+    return 1;
+}
+void *vita_gxm_canvas_screen_snapshot(void) {
+    if (!screen_target_active || !drawing) return NULL;
+    flush_batch();
+    vita2d_disable_clipping();
+    vita2d_end_drawing();
+    drawing = 0;
+    screen_snapshot = screen_target[screen_target_index];
+    screen_mip[0] = screen_snapshot;
+    // Hardware downsample passes. Each level reads a completed previous
+    // surface and writes to a different target (no read/write feedback).
+    for (int level = 1; level < SCREEN_MIP_LEVELS; ++level) {
+        vita2d_texture *src = screen_mip[level - 1].texture;
+        vita2d_texture *dst = screen_mip[level].texture;
+        vita2d_start_drawing_advanced(dst,
+                SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY | SCE_GXM_SCENE_FRAGMENT_SET_DEPENDENCY);
+        SceGxmContext *ctx = vita2d_get_context();
+        const float w = (float)vita2d_texture_get_width(dst);
+        const float h = (float)vita2d_texture_get_height(dst);
+        sceGxmSetViewport(ctx, w * .5f, w * .5f, h * .5f, -h * .5f, .5f, .5f);
+        vita2d_disable_clipping();
+        vita2d_set_clear_color(0xff000000u);
+        vita2d_clear_screen();
+        vita2d_texture_set_filters(src, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
+        vita2d_draw_texture_scale(src, 0.f, 0.f,
+                960.f / (float)vita2d_texture_get_width(src),
+                544.f / (float)vita2d_texture_get_height(src));
+        vita2d_end_drawing();
+        stat_targets++;
+    }
+    screen_target_index ^= 1;
+    vita2d_start_drawing_advanced(screen_target[screen_target_index].texture,
+            SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY | SCE_GXM_SCENE_FRAGMENT_SET_DEPENDENCY);
+    screen_target_state();
+    vita2d_set_clear_color(0xff000000u);
+    vita2d_clear_screen();
+    vita2d_draw_texture(screen_snapshot.texture, 0.f, 0.f);
+    drawing = 1;
+    return &screen_snapshot;
+}
+static void screen_target_present(void) {
+    flush_batch();
+    vita2d_disable_clipping();
+    vita2d_end_drawing();
+    vita2d_start_drawing_advanced(NULL, SCE_GXM_SCENE_VERTEX_WAIT_FOR_DEPENDENCY);
+    screen_target_state();
+    vita2d_draw_texture(screen_target[screen_target_index].texture, 0.f, 0.f);
+    screen_target_active = 0;
+    screen_snapshot.texture = NULL;
+}
+
+/* Native ShaderMaterial fragment programs. These use the real GXM shader
+ * patcher rather than converting the project to fixed-function image effects.
+ * Programs are compiled once on the Vita by vitaShaRK/SceShaccCg and cached
+ * for the session. The existing vita2d textured vertex shader remains active.
+ */
+#define GXM_CANVAS_SHADER_LIMIT 32
+typedef struct GXMCanvasShader {
+    unsigned long long key;
+    SceGxmProgram *gxp;
+    SceGxmShaderPatcherId id;
+    SceGxmFragmentProgram *fragment;
+    unsigned uniform_count;
+    unsigned draw_count;
+} GXMCanvasShader;
+static GXMCanvasShader canvas_shaders[GXM_CANVAS_SHADER_LIMIT];
+static unsigned canvas_shader_count;
+/* A failing source used by several ShaderMaterials must not repeatedly
+ * invoke the firmware compiler (some Godot scenes recreate RIDs per frame).
+ * Cache failures by source fingerprint until the next process. */
+#define GXM_FAILED_SOURCE_LIMIT 96
+static unsigned long long canvas_failed_sources[GXM_FAILED_SOURCE_LIMIT];
+static unsigned canvas_failed_source_count;
+
+static vita2d_texture *canvas_white;
+static unsigned long long canvas_shader_hash(const char *src) {
+    unsigned long long h = 1469598103934665603ull;
+    for (; *src; src++) h = (h ^ (unsigned char)*src) * 1099511628211ull;
+    return h;
+}
+int vita_gxm_canvas_shader_compiler_enabled(void) {
+    return vita_shacc_enabled();
+}
+int vita_gxm_canvas_compiler_idle(void) {
+    return initialized && !drawing && !target_drawing && !scene3d_drawing;
+}
+int vita_gxm_canvas_shader_create(const char *cg_source) {
+    if (!initialized || !cg_source || !*cg_source) return 0;
+    if (!vita_gxm_canvas_compiler_idle()) {
+        fprintf(stderr, "[gxm-shacc] REFUSED compile inside active GXM scene\n");
+        fflush(stderr);
+        return 0;
+    }
+    const unsigned long long key = canvas_shader_hash(cg_source);
+    for (unsigned i = 0; i < canvas_shader_count; i++) {
+        if (canvas_shaders[i].key == key) return (int)i + 1;
+    }
+    for (unsigned i = 0; i < canvas_failed_source_count; i++) {
+        if (canvas_failed_sources[i] == key) return 0;
+    }
+    if (canvas_shader_count >= GXM_CANVAS_SHADER_LIMIT) {
+        fprintf(stderr, "[gxm-shacc] shader limit reached (%d)\n", GXM_CANVAS_SHADER_LIMIT);
+        return 0;
+    }
+    if (!vita_shacc_enabled()) return 0;
+    unsigned size = 0;
+    const SceGxmProgram *compiled = vita_shacc_compile_fragment(cg_source, &size);
+    if (!compiled || !size) {
+        fprintf(stderr, "[gxm-shacc] shader compile failed key=%llx (failure cached)\n", key);
+        fflush(stderr);
+        if (canvas_failed_source_count < GXM_FAILED_SOURCE_LIMIT)
+            canvas_failed_sources[canvas_failed_source_count++] = key;
+        vita_shacc_release_output();
+        return 0;
+    }
+    SceGxmProgram *copy = malloc(size);
+    if (!copy) { vita_shacc_release_output(); return 0; }
+    memcpy(copy, compiled, size);
+    vita_shacc_release_output();
+    SceGxmShaderPatcher *patcher = vita2d_get_shader_patcher();
+    GXMCanvasShader *entry = &canvas_shaders[canvas_shader_count];
+    SceGxmShaderPatcherId id = 0;
+    int rc = patcher ? sceGxmShaderPatcherRegisterProgram(patcher, copy, &id) : -1;
+    fprintf(stderr, "[gxm-shacc] patcher register rc=0x%08x id=%u key=%llx\n",
+            (unsigned)rc, (unsigned)id, key);
+    fflush(stderr);
+    SceGxmFragmentProgram *program = NULL;
+    if (rc >= 0) {
+        const SceGxmBlendInfo mix = {
+            .colorMask = SCE_GXM_COLOR_MASK_ALL,
+            .colorFunc = SCE_GXM_BLEND_FUNC_ADD, .alphaFunc = SCE_GXM_BLEND_FUNC_ADD,
+            .colorSrc = SCE_GXM_BLEND_FACTOR_SRC_ALPHA,
+            .colorDst = SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .alphaSrc = SCE_GXM_BLEND_FACTOR_ONE,
+            .alphaDst = SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        };
+        rc = sceGxmShaderPatcherCreateFragmentProgram(patcher, id,
+                SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4, SCE_GXM_MULTISAMPLE_NONE, &mix,
+                &texture_v_gxp_start, &program);
+        fprintf(stderr, "[gxm-shacc] patcher create-fragment rc=0x%08x program=%p key=%llx\n",
+                (unsigned)rc, (void *)program, key);
+        fflush(stderr);
+    }
+    if (rc < 0 || !program) {
+        fprintf(stderr, "[gxm-shacc] fragment register failed rc=0x%08x key=%llx\n", (unsigned)rc, key);
+        fflush(stderr);
+        if (id) sceGxmShaderPatcherUnregisterProgram(patcher, id);
+        free(copy);
+        return 0;
+    }
+    entry->key = key; entry->gxp = copy; entry->id = id; entry->fragment = program;
+    canvas_shader_count++;
+    fprintf(stderr, "[gxm-shacc] compiled program=%u bytes=%u key=%llx\n", canvas_shader_count, size, key);
+    fflush(stderr);
+    return (int)canvas_shader_count;
+}
+static void canvas_shader_cleanup(void) {
+    SceGxmShaderPatcher *patcher = initialized ? vita2d_get_shader_patcher() : NULL;
+    if (patcher) {
+        for (unsigned i = 0; i < canvas_shader_count; i++) {
+            GXMCanvasShader *shader = &canvas_shaders[i];
+            if (shader->fragment) sceGxmShaderPatcherReleaseFragmentProgram(patcher, shader->fragment);
+            if (shader->id) sceGxmShaderPatcherUnregisterProgram(patcher, shader->id);
+            free(shader->gxp);
+            memset(shader, 0, sizeof(*shader));
+        }
+    }
+    canvas_shader_count = 0;
+    canvas_failed_source_count = 0;
+    if (canvas_white) { vita2d_free_texture(canvas_white); canvas_white = NULL; }
+    vita_shacc_shutdown();
+}
+
+static vita2d_texture *canvas_shader_white(void) {
+    if (canvas_white) return canvas_white;
+    canvas_white = vita2d_create_empty_texture_format(1, 1, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8);
+    if (canvas_white) {
+        uint32_t *p = (uint32_t *)vita2d_texture_get_datap(canvas_white);
+        *p = 0xffffffffu;
+    }
+    return canvas_white;
+}
+int vita_gxm_canvas_shader_draw(int handle, void *texture, void *screen_texture,
+        const float *xy, const float *uv, uint32_t color,
+        const VitaGXMCanvasUniform *uniforms, unsigned uniform_count,
+        const VitaGXMCanvasSampler *samplers, unsigned sampler_count) {
+    if ((!drawing && !target_drawing) || handle < 1 || handle > (int)canvas_shader_count || !xy || !uv) return 0;
+    GXMCanvasShader *shader = &canvas_shaders[handle - 1];
+    if (!shader->fragment) return 0;
+    flush_batch();
+    GXMTexture *input = texture;
+    GXMTexture *screen = screen_texture;
+    vita2d_texture *tex = input ? input->texture : canvas_shader_white();
+    if (!tex) return 0;
+    vita2d_texture_vertex *v = vita2d_pool_memalign(6 * sizeof(*v), 8);
+    if (!v) return 0;
+    const int corners[6] = {0, 1, 2, 0, 2, 3};
+    for (int i = 0; i < 6; i++) {
+        const int j = corners[i];
+        v[i].x = xy[j * 2]; v[i].y = xy[j * 2 + 1]; v[i].z = 0.5f;
+        v[i].u = uv[j * 2]; v[i].v = uv[j * 2 + 1];
+    }
+    SceGxmContext *ctx = vita2d_get_context();
+    sceGxmSetVertexProgram(ctx, _vita2d_textureVertexProgram);
+    sceGxmSetFragmentProgram(ctx, shader->fragment);
+    void *vbuf = NULL, *fbuf = NULL;
+    sceGxmReserveVertexDefaultUniformBuffer(ctx, &vbuf);
+    sceGxmSetUniformDataF(vbuf, _vita2d_textureWvpParam, 0, 16, _vita2d_ortho_matrix);
+    sceGxmReserveFragmentDefaultUniformBuffer(ctx, &fbuf);
+    for (unsigned i = 0; i < uniform_count && i < 48; i++) {
+        const VitaGXMCanvasUniform *u = &uniforms[i];
+        const SceGxmProgramParameter *param = sceGxmProgramFindParameterByName(shader->gxp, u->name);
+        if (param && u->components >= 1 && u->components <= 4)
+            sceGxmSetUniformDataF(fbuf, param, 0, u->components, u->value);
+    }
+    const SceGxmProgramParameter *tint = sceGxmProgramFindParameterByName(shader->gxp, "gxm_tint");
+    if (tint) {
+        float vals[4] = {
+            (color & 255) / 255.f, ((color >> 8) & 255) / 255.f,
+            ((color >> 16) & 255) / 255.f, ((color >> 24) & 255) / 255.f
+        };
+        sceGxmSetUniformDataF(fbuf, tint, 0, 4, vals);
+    }
+    sceGxmSetFragmentTexture(ctx, 0, &tex->gxm_tex);
+    if (screen) {
+        sceGxmSetFragmentTexture(ctx, 1, &screen->texture->gxm_tex);
+        for (int level = 1; level < SCREEN_MIP_LEVELS; ++level) {
+            if (screen_mip[level].texture)
+                sceGxmSetFragmentTexture(ctx, level + 1, &screen_mip[level].texture->gxm_tex);
+        }
+    }
+    for (unsigned i = 0; i < sampler_count && i < 4; ++i) {
+        GXMTexture *additional = samplers && samplers[i].texture ? samplers[i].texture : NULL;
+        vita2d_texture *source = additional ? additional->texture : canvas_shader_white();
+        if (source) sceGxmSetFragmentTexture(ctx, i + 7, &source->gxm_tex);
+    }
+    sceGxmSetVertexStream(ctx, 0, v);
+    sceGxmDraw(ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16,
+            vita2d_get_linear_indices(), 6);
+    if (shader->draw_count++ == 0) {
+        fprintf(stderr, "[gxm-shacc] GPU DRAW submitted handle=%d key=%llx uniforms=%u samplers=%u\n",
+                handle, shader->key, uniform_count, sampler_count);
+        fflush(stderr);
+    }
+    stat_draws++;
+    return 1;
+}
+
 void vita_gxm_blend_add(int enabled) {
     vita2d_set_blend_mode_add(enabled ? 1 : 0);
 }

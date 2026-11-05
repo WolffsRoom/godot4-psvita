@@ -552,11 +552,16 @@ extern int sceClibPrintf();
 extern int sceCtrlPeekBufferPositive();
 extern int sceCtrlSetSamplingMode();
 extern int sceIoClose();
+extern int sceIoLseek();
 extern int sceIoMkdir();
 extern int sceIoOpen();
+extern int sceIoRead();
 extern int sceIoRemove();
 extern int sceIoWrite();
+extern int sceKernelAllocMemBlock();
 extern int sceKernelExitProcess();
+extern int sceKernelFreeMemBlock();
+extern int sceKernelGetMemBlockBase();
 extern int sceKernelGetRandomNumber();
 extern int sceMotionGetState();
 extern int sceMotionStartSampling();
@@ -679,6 +684,12 @@ so_default_dynlib default_dynlib[] = {
   { "vita_gxm_light_mesh_create", (uintptr_t)&vita_gxm_light_mesh_create },
   { "vita_gxm_light_mesh_set_colors", (uintptr_t)&vita_gxm_light_mesh_set_colors },
   { "vita_gxm_light_mesh_draw", (uintptr_t)&vita_gxm_light_mesh_draw },
+  { "vita_gxm_canvas_screen_begin", (uintptr_t)&vita_gxm_canvas_screen_begin },
+  { "vita_gxm_canvas_screen_snapshot", (uintptr_t)&vita_gxm_canvas_screen_snapshot },
+  { "vita_gxm_canvas_shader_compiler_enabled", (uintptr_t)&vita_gxm_canvas_shader_compiler_enabled },
+  { "vita_gxm_canvas_compiler_idle", (uintptr_t)&vita_gxm_canvas_compiler_idle },
+  { "vita_gxm_canvas_shader_create", (uintptr_t)&vita_gxm_canvas_shader_create },
+  { "vita_gxm_canvas_shader_draw", (uintptr_t)&vita_gxm_canvas_shader_draw },
   { "vita_gxm_blend_add", (uintptr_t)&vita_gxm_blend_add },
   { "vita_gxm_quad", (uintptr_t)&vita_gxm_quad },
   { "vita_gxm_clip", (uintptr_t)&vita_gxm_clip },
@@ -1236,11 +1247,16 @@ so_default_dynlib default_dynlib[] = {
   { "sceCtrlPeekBufferPositive", (uintptr_t)&sceCtrlPeekBufferPositive },
   { "sceCtrlSetSamplingMode", (uintptr_t)&sceCtrlSetSamplingMode },
   { "sceIoClose", (uintptr_t)&sceIoClose },
+  { "sceIoLseek", (uintptr_t)&sceIoLseek },
   { "sceIoMkdir", (uintptr_t)&sceIoMkdir },
   { "sceIoOpen", (uintptr_t)&sceIoOpen },
+  { "sceIoRead", (uintptr_t)&sceIoRead },
   { "sceIoRemove", (uintptr_t)&sceIoRemove },
   { "sceIoWrite", (uintptr_t)&sceIoWrite },
+  { "sceKernelAllocMemBlock", (uintptr_t)&sceKernelAllocMemBlock },
   { "sceKernelExitProcess", (uintptr_t)&sceKernelExitProcess },
+  { "sceKernelFreeMemBlock", (uintptr_t)&sceKernelFreeMemBlock },
+  { "sceKernelGetMemBlockBase", (uintptr_t)&sceKernelGetMemBlockBase },
   { "sceKernelGetRandomNumber", (uintptr_t)&sceKernelGetRandomNumber },
   { "sceMotionGetState", (uintptr_t)&sceMotionGetState },
   { "sceMotionStartSampling", (uintptr_t)&sceMotionStartSampling },

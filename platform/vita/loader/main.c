@@ -27,6 +27,7 @@
 #include "diag.h"
 #include "main.h"
 #include "so_util.h"
+#include "shacc_runtime.h"
 
 // Keep 192 MiB permanently available to Godot. The loader reads the temporary
 // .so image inside this heap, then frees it after mapping the RX/RW segments.
@@ -62,6 +63,15 @@ static enum capunlocker_mode read_capunlocker_mode(void) {
 	if (strncmp(mode, "disabled", 8) == 0) return CAPUNLOCKER_DISABLED;
 	if (strncmp(mode, "required", 8) == 0) return CAPUNLOCKER_REQUIRED;
 	return CAPUNLOCKER_OPTIONAL;
+}
+
+static int read_pck_prefetch_enabled(void) {
+	FILE *f = fopen("app0:pck_prefetch.cfg", "r");
+	if (!f) return 1;
+	char mode[16] = {};
+	fgets(mode, sizeof(mode), f);
+	fclose(f);
+	return strncmp(mode, "disabled", 8) != 0;
 }
 
 static int probe_capunlocker(void) {
@@ -107,7 +117,9 @@ static void log_memory(const char *stage) {
 
 static void log_line(const char *s) {
 	sceClibPrintf("%s", s);
-	FILE *f = fopen(VITA_LOG_ROOT "/logs/godot_loader.log", "a");
+	char log_path[160];
+	snprintf(log_path, sizeof(log_path), "%s/godot_loader.log", vita_log_dir());
+	FILE *f = fopen(log_path, "a");
 	if (f) {
 		fputs(s, f);
 		fclose(f);
@@ -139,12 +151,14 @@ void fatal_error(const char *fmt, ...) {
 }
 
 int main(int argc, char *argv[]) {
-    sceIoMkdir(VITA_LOG_ROOT, 0777);
-    sceIoMkdir(VITA_LOG_ROOT "/logs", 0777);
+	vita_init_log_paths();
 	diag("[main] reached main()\n");
 
-	// Fresh log per run.
-	sceIoRemove(VITA_LOG_ROOT "/logs/godot_loader.log");
+	// Fresh log per run, in the project's folder, including embedded exports.
+	char log_path[160];
+	snprintf(log_path, sizeof(log_path), "%s/godot_loader.log", vita_log_dir());
+	sceIoRemove(log_path);
+	debugPrintf("[loader] data_root=%s logs=%s\n", vita_data_dir(), vita_log_dir());
 
 	scePowerSetArmClockFrequency(444);
 	scePowerSetBusClockFrequency(222);
@@ -154,10 +168,12 @@ int main(int argc, char *argv[]) {
 	enum capunlocker_mode cap_mode = read_capunlocker_mode();
 	int cap_result = cap_mode == CAPUNLOCKER_DISABLED ? -1 : probe_capunlocker();
 	int cap_available = cap_mode != CAPUNLOCKER_DISABLED && cap_result >= 0;
+	int io_prefetch = cap_available && read_pck_prefetch_enabled();
 	setenv("GODOT_VITA_CAPUNLOCKER", cap_available ? "1" : "0", 1);
-	debugPrintf("[capunlocker] mode=%s available=%d probe_rc=0x%08x audio_cpu3=%d\n",
+	setenv("GODOT_VITA_PCK_PREFETCH", io_prefetch ? "1" : "0", 1);
+	debugPrintf("[capunlocker] mode=%s available=%d probe_rc=0x%08x audio_cpu3=0 io_prefetch_cpu3=%d\n",
 			cap_mode == CAPUNLOCKER_REQUIRED ? "required" : (cap_mode == CAPUNLOCKER_OPTIONAL ? "optional" : "disabled"),
-			cap_available, (unsigned int)cap_result, cap_available);
+			cap_available, (unsigned int)cap_result, io_prefetch);
 	if (cap_mode == CAPUNLOCKER_REQUIRED && !cap_available) {
 		show_capunlocker_required();
 		fatal_error("CapUnlocker required but CPU3 affinity was denied (0x%08x). Install CapUnlocker.skprx under *KERNEL and reboot.", (unsigned int)cap_result);
@@ -168,6 +184,16 @@ int main(int argc, char *argv[]) {
 	debugPrintf("BUILD_ID: %s\n", VITA_RUNTIME_BUILD_ID);
 	debugPrintf("RUNTIME_SHA256: %s\n", VITA_RUNTIME_SHA256);
 	debugPrintf("VITAGL_SHA256: %s\n", VITA_GL_SHA256);
+    vita_shacc_configure();
+    const VitaShaccInfo *shacc_status = vita_shacc_probe();
+    debugPrintf("[vita-shacc] mode=%s module=%s path=%s bytes=%u crc32=%08x (module is never bundled)\n",
+            vita_shacc_mode_name(), shacc_status->available ? "available" : "unavailable",
+            shacc_status->available ? shacc_status->path : "(none)",
+            shacc_status->module_bytes, shacc_status->crc32);
+
+    debugPrintf("[shacc-boot] BEGIN optional module diagnostic (before Godot .so load)\n");
+    const int shacc_boot_rc = vita_shacc_diagnostic_boot();
+    debugPrintf("[shacc-boot] END rc=%d\n", shacc_boot_rc);
 	debugPrintf("Godot Vita loader: loading app0:libgodot.so\n");
 	log_memory("before_so_load");
 #ifdef VITA_BOOT_ANIMATION_ENABLED
@@ -181,7 +207,8 @@ int main(int argc, char *argv[]) {
 #ifdef VITA_BOOT_ANIMATION_ENABLED
 		dodge_boot_splash_stop();
 #endif
-		fatal_error("so_load failed (is libgodot.so in the VPK?)");
+		log_memory("so_load_failed");
+		fatal_error("so_load failed: check libgodot.so, kubridge and RX allocation; see godot_loader.log");
 	}
 	debugPrintf("so_load OK, relocating...\n");
 	log_memory("after_so_load");
@@ -211,9 +238,9 @@ int main(int argc, char *argv[]) {
 
 	debugPrintf("calling engine main()...\n");
 	log_memory("before_engine_main");
-	godot_main(argc, argv);
+	int engine_rc = godot_main(argc, argv);
 
-	debugPrintf("engine main() returned; exiting.\n");
+	debugPrintf("engine main() returned rc=%d; exiting.\n", engine_rc);
 	sceKernelExitProcess(0);
 	return 0;
 }

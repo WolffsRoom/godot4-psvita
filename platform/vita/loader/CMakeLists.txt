@@ -45,6 +45,7 @@ add_executable(${PROJECT_NAME}
   # query) to the raw NID _sceAppMgrGetBudgetInfo in the SDK stubs.
   sdk_shims.c
   gxm_bridge.c
+  shacc_runtime.c
 )
 target_compile_definitions(${PROJECT_NAME} PRIVATE
   VITA_RUNTIME_BUILD_ID="${VITA_RUNTIME_BUILD_ID}"
@@ -111,6 +112,7 @@ target_link_libraries(${PROJECT_NAME}
   SceSblSsMgr_stub
   SceLibKernel_stub
   SceKernelThreadMgr_stub
+  SceSysmem_stub
   SceIofilemgr_stub
   SceFios2_stub
   pthread

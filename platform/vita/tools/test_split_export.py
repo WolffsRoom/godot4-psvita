@@ -20,12 +20,14 @@ base = '\n'.join(line for line in base.splitlines() if not line.startswith('data
 env = dict(os.environ, APPDATA=str(WORK/'appdata'), LOCALAPPDATA=str(WORK/'localappdata'))
 results = {}
 
-def export(label, separate=None, folder='meujogovita', pack=False, destination=None, template=None, success=True, package_format=None):
+def export(label, separate=None, folder='meujogovita', pack=False, destination=None, template=None, success=True, package_format=None, pck_prefetch=None):
     preset = base + '\ndata/folder_name=' + json.dumps(folder) + '\n'
     if separate is not None:
         preset += 'data/separate_folder=' + str(separate).lower() + '\n'
     if package_format is not None:
         preset += 'data/package_format=' + json.dumps(package_format) + '\n'
+    if pck_prefetch is not None:
+        preset += 'performance/pck_prefetch=' + str(pck_prefetch).lower() + '\n'
     if template:
         preset = preset.replace('custom_template/release=""', 'custom_template/release=' + json.dumps(template.as_posix()))
     (PROJECT/'export_presets.cfg').write_text(preset)
@@ -47,16 +49,25 @@ data = split.parent/'meujogovita'
 with zipfile.ZipFile(split) as z:
     assert z.testzip() is None
     assert z.read('game_data_folder.cfg') == b'meujogovita'
+    assert z.read('game_data_owner.cfg') == b'GDOT40001'
+    assert z.read('pck_prefetch.cfg') == b'enabled\n'
     assert not any(n.startswith('game_data/') for n in z.namelist())
-assert (data/'game_data/game.pck').is_file()
+assert (data/'game.pck').is_file()
+assert not (data/'game_data/game.pck').exists()
 assert not (data/'project.binary').exists()
-assert (data/'.vita-export-owner').read_text() == 'GDOT40001'
+assert not (data/'.vita-export-owner').exists()
+assert (data/'logs').is_dir()
+assert sorted(p.name for p in data.iterdir()) == ['game.pck', 'logs']
 full, _ = export('full', separate=False)
 with zipfile.ZipFile(full) as z:
     assert z.testzip() is None
-    assert 'game_data_folder.cfg' not in z.namelist()
-    assert z.read('game_data/game.pck') == (data/'game_data/game.pck').read_bytes()
+    assert z.read('game_data_folder.cfg') == b'meujogovita'
+    assert z.read('pck_prefetch.cfg') == b'enabled\n'
+    assert z.read('game_data/game.pck') == (data/'game.pck').read_bytes()
 assert not (full.parent/'meujogovita').exists()
+prefetch_off, _ = export('prefetch-off', pck_prefetch=False)
+with zipfile.ZipFile(prefetch_off) as z:
+    assert z.read('pck_prefetch.cfg') == b'disabled\n'
 loose, _ = export('loose', package_format='Game Data (arquivos soltos)')
 loose_data = loose.parent/'meujogovita'
 assert (loose_data/'game_data/project.binary').is_file()
