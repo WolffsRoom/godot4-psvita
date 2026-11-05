@@ -1,6 +1,11 @@
 name: Godot4Vita editor distributions
 
 on:
+  # Runs when this workflow changes on the v0.3 test branch; workflow_dispatch
+  # only works once the file is on the default branch.
+  push:
+    branches: [teste]
+    paths: ['.github/workflows/godot4vita_editor_multiplatform.yml']
   workflow_dispatch:
     inputs:
       support_release:
@@ -54,7 +59,7 @@ jobs:
       - name: Download portable Vita support payload
         env:
           GH_TOKEN: ${{ github.token }}
-          SUPPORT_TAG: ${{ inputs.support_release }}
+          SUPPORT_TAG: ${{ inputs.support_release || 'v0.2' }}
         shell: bash
         run: |
           mkdir -p _build/support-download _build/support
