@@ -1,10 +1,10 @@
 name: Godot4Vita editor distributions
 
 on:
-  # Runs when this workflow changes on the v0.3 test branch; workflow_dispatch
+  # Runs when this workflow changes on the v0.3 test branch (test); workflow_dispatch
   # only works once the file is on the default branch.
   push:
-    branches: [teste]
+    branches: [test]
     paths: ['.github/workflows/godot4vita_editor_multiplatform.yml']
   workflow_dispatch:
     inputs:
