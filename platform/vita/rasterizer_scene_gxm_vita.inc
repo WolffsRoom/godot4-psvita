@@ -40,6 +40,10 @@ public:
         // for surfaces that receive per-vertex lighting.
         Vector<Vector3> positions, normals;
         Color tint = Color(1, 1, 1, 1); // Vertex-color tint
+        // A region update patched the CPU surface; the GPU slot is rewritten
+        // in the next draw, after vita_gxm_begin has waited for the previous
+        // frame, which may still be reading the slot.
+        bool gpu_dirty = false;
     };
     struct SurfaceInfo {
         bool triangles = false;
@@ -224,16 +228,40 @@ public:
         Vector<uint8_t> &target = which == 0 ? s.vertex_data : (which == 1 ? s.attribute_data : (which == 2 ? s.skin_data : s.index_data));
         ERR_FAIL_COND(offset < 0 || offset + data.size() > target.size());
         memcpy(target.ptrw() + offset, data.ptr(), data.size());
-        if (!refresh_in_place(rid, surface)) invalidate_mesh(rid);
+        // Writing the arena here could race the GPU: vita_gxm_end does not
+        // wait, so the previous frame may still read this slot. Mark it and
+        // let the draw rewrite it once vita_gxm_begin has waited.
+        auto *surfaces = flat.getptr(rid);
+        FlatSurface *value = surfaces ? surfaces->getptr(surface) : nullptr;
+        if (value && value->gpu) {
+            value->gpu_dirty = true;
+            value->positions.clear();
+            value->normals.clear();
+            drop_decoded(rid);
+        } else {
+            invalidate_mesh(rid);
+        }
         m->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_MESH);
     }
-    // Rewrites an already uploaded surface in its existing GPU arena slot.
+    void drop_decoded(RID rid) {
+        auto *mesh = decoded.getptr(rid);
+        if (!mesh) return;
+        for (const KeyValue<int, Array> &cached : *mesh) {
+            PackedVector3Array cached_positions = cached.value.is_empty() ? PackedVector3Array() : PackedVector3Array(cached.value[RSE::ARRAY_VERTEX]);
+            uint64_t bytes = uint64_t(cached_positions.size()) * 256 + uint64_t(PackedInt32Array(cached.value[RSE::ARRAY_INDEX]).size()) * 4;
+            cache_bytes = cache_bytes > bytes ? cache_bytes - bytes : 0;
+        }
+        decoded.erase(rid);
+    }
+    // Rewrites a dirty surface in its existing GPU arena slot, from the draw.
     // Dropping and re-flattening on every sprite frame leaked arena space
     // until the renderer rebuilt all geometry at once (a long hitch).
+    // Returns false when the new vertex count does not fit the slot.
     bool refresh_in_place(RID rid, int surface) {
         auto *surfaces = flat.getptr(rid);
         FlatSurface *value = surfaces ? surfaces->getptr(surface) : nullptr;
         if (!value || !value->gpu) return false;
+        if (!value->gpu_dirty) return true;
         Array arrays = RenderingServer::get_singleton()->mesh_create_arrays_from_surface_data(mesh_get_surface(rid, surface));
         if (arrays.is_empty()) return false;
         PackedVector3Array positions = arrays[RSE::ARRAY_VERTEX];
@@ -259,16 +287,8 @@ public:
         if (!vita_gxm_mesh_update(value->gpu, xyz.ptr(), uv.ptr(), unsigned(count))) return false;
         value->positions.clear();
         value->normals.clear();
+        value->gpu_dirty = false;
         set_tint(rid, surface, arrays[RSE::ARRAY_COLOR]);
-        auto *mesh = decoded.getptr(rid);
-        if (mesh) {
-            for (const KeyValue<int, Array> &cached : *mesh) {
-                PackedVector3Array cached_positions = cached.value.is_empty() ? PackedVector3Array() : PackedVector3Array(cached.value[RSE::ARRAY_VERTEX]);
-                uint64_t bytes = uint64_t(cached_positions.size()) * 256 + uint64_t(PackedInt32Array(cached.value[RSE::ARRAY_INDEX]).size()) * 4;
-                cache_bytes = cache_bytes > bytes ? cache_bytes - bytes : 0;
-            }
-            decoded.erase(rid);
-        }
         return true;
     }
     // Vertex colors become one tint per surface. Sprite3D carries modulate
@@ -287,7 +307,7 @@ public:
     void mesh_surface_update_skin_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 2); }
     void mesh_surface_update_index_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 3); }
     void mesh_set_custom_aabb(RID rid, const AABB &aabb) override {
-        if (aabb.size == Vector3()) custom_aabbs.erase(rid); else custom_aabbs[rid] = aabb;
+        if (aabb == AABB()) custom_aabbs.erase(rid); else custom_aabbs[rid] = aabb;
         RendererDummy::DummyMesh *m = get_mesh(rid);
         if (m) m->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_AABB);
     }
@@ -614,6 +634,9 @@ class GXMScene : public RasterizerSceneDummy {
     // Deferred transparent surfaces.
     struct TransparentDraw {
         void *mesh = nullptr;
+        // CPU-fallback vertices (GPU arena full), copied so a later
+        // invalidate of the source surface cannot free them first.
+        Vector<float> xyz, uv;
         void *texture = nullptr;
         float matrix[16];
         uint32_t color = 0;
@@ -1154,7 +1177,9 @@ public:
         uint64_t skinned_us = 0;
         for (uint32_t i = 0; i < draw_candidates.size(); i++) {
             auto *instance = draw_candidates[i].instance;
-            const GXMMeshStorage::MeshInfo &info = meshes->get_info(instance->mesh);
+            // Copy: a failed in-place rewrite below drops this mesh's cached
+            // info mid-loop, and a reference into that map would dangle.
+            const GXMMeshStorage::MeshInfo info = meshes->get_info(instance->mesh);
             // Whole instances only: cutting a mesh at the budget leaves holes
             // that move with the camera. Room structure is bound only by the
             // configured ceiling, so the adaptive budget never removes walls.
@@ -1223,6 +1248,20 @@ public:
                         flat = meshes->get_flat(instance->mesh, s, arrays[RSE::ARRAY_VERTEX], arrays[RSE::ARRAY_TEX_UV], arrays[RSE::ARRAY_INDEX]);
                         meshes->set_tint(instance->mesh, s, arrays[RSE::ARRAY_COLOR]); // Tint on first use
                         build_us += OS::get_singleton()->get_ticks_usec() - build_started;
+                    } else if (flat->gpu_dirty) {
+                        // Region update (Sprite3D frame, Label3D text): rewrite
+                        // the slot now that the previous frame has finished.
+                        uint64_t build_started = OS::get_singleton()->get_ticks_usec();
+                        if (!meshes->refresh_in_place(instance->mesh, s)) {
+                            meshes->invalidate_mesh(instance->mesh);
+                            flat = nullptr;
+                            Array arrays = meshes->get_decoded(instance->mesh, s);
+                            if (!arrays.is_empty()) {
+                                flat = meshes->get_flat(instance->mesh, s, arrays[RSE::ARRAY_VERTEX], arrays[RSE::ARRAY_TEX_UV], arrays[RSE::ARRAY_INDEX]);
+                                meshes->set_tint(instance->mesh, s, arrays[RSE::ARRAY_COLOR]);
+                            }
+                        }
+                        build_us += OS::get_singleton()->get_ticks_usec() - build_started;
                     }
                 }
                 LitSurface *lit = vertex_lit && flat && flat->gpu ? get_lit_surface(instance, s, flat->count, vertex_budget, build_us) : nullptr;
@@ -1263,16 +1302,20 @@ public:
                 }
                 // Transparent surfaces wait for the sorted pass.
                 bool transparent = color.a < 0.99f || (tex.get_type() == Variant::RID && textures->texture_has_alpha(tex));
-                if (transparent && !bones && flat && flat->gpu) {
+                if (transparent && !bones && flat) {
                     TransparentDraw deferred;
                     deferred.mesh = flat->gpu;
+                    if (!flat->gpu) {
+                        deferred.xyz = flat->xyz;
+                        deferred.uv = flat->uv;
+                    }
                     deferred.texture = gpu;
                     memcpy(deferred.matrix, matrix, sizeof(matrix));
                     deferred.color = gxm_color(color);
-                    deferred.count = flat->count;
+                    deferred.count = flat->gpu ? flat->count : unsigned(flat->xyz.size() / 9) * 3;
                     deferred.depth = (instance->world_bounds.get_center() - eye).dot(view_forward);
                     transparent_draws.push_back(deferred);
-                    attempted += flat->count / 3;
+                    attempted += deferred.count / 3;
                     continue;
                 }
                 if (!bones) {
@@ -1382,8 +1425,16 @@ public:
             vita_gxm_depth_write(0);
             for (uint32_t i = 0; i < transparent_draws.size(); i++) {
                 const TransparentDraw &d = transparent_draws[i];
-                if (vita_gxm_mesh_draw(d.mesh, d.texture, d.matrix, d.color)) {
-                    triangles += d.count / 3;
+                if (d.mesh) {
+                    if (vita_gxm_mesh_draw(d.mesh, d.texture, d.matrix, d.color)) {
+                        triangles += d.count / 3;
+                        transparent_drawn++;
+                    }
+                } else if (d.count && d.xyz.size() >= int(d.count) * 3 && d.uv.size() >= int(d.count) * 2) {
+                    for (unsigned offset = 0; offset < d.count; offset += 3072) {
+                        unsigned batch = MIN(3072u, d.count - offset);
+                        if (vita_gxm_triangles3d(d.texture, d.xyz.ptr() + offset * 3, d.uv.ptr() + offset * 2, batch, d.matrix, d.color)) triangles += batch / 3;
+                    }
                     transparent_drawn++;
                 }
             }

@@ -544,10 +544,12 @@ int vita_gxm_mesh_draw(void *handle, void *texture, const float *mvp, uint32_t c
     }
     return 1;
 }
-/* Rewrites a mesh in its existing arena slot (same vertex count). */
+/* Rewrites a mesh in its existing arena slot (same vertex count). The
+ * previous frame may still read the slot until vita_gxm_begin waits, so call
+ * this only from the draw. Uncached arena memory: no flush needed. */
 int vita_gxm_mesh_update(void *handle, const float *xyz, const float *uv, unsigned count) {
     GXMMesh *mesh = handle;
-    if (!mesh || !xyz || count != mesh->count) return 0;
+    if (!mesh || !xyz || count != mesh->count || (count % 3u) != 0) return 0;
     for (unsigned i = 0; i < count; i++) {
         vita2d_texture_vertex *v = &mesh->vertices[i];
         v->x = xyz[i * 3]; v->y = xyz[i * 3 + 1]; v->z = xyz[i * 3 + 2];
