@@ -4,7 +4,7 @@
 config_version=5
 
 [application]
-config/name="GXM3D Tux Test"
+config/name="GXM3D Feature Test"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.8", "GL Compatibility")
 
@@ -16,7 +16,7 @@ window/vsync/vsync_mode=0
 
 [rendering]
 renderer/rendering_method="gl_compatibility"
-environment/defaults/default_clear_color=Color(0.05, 0.06, 0.1, 1)
+environment/defaults/default_clear_color=Color(0.035, 0.045, 0.075, 1)
 vita/tilt_shift=false
 vita/vertex_lighting=true
 vita/triangle_budget=200000
