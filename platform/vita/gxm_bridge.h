@@ -11,6 +11,10 @@ void vita_gxm_scene3d_end(void);
  * and drawn every frame without CPU vertex conversion. */
 void *vita_gxm_mesh_create(const float *xyz, const float *uv, unsigned count);
 int vita_gxm_mesh_draw(void *mesh, void *texture, const float *mvp, uint32_t color);
+/* Rewrite xyz/uv in an existing slot. The previous frame may still be
+ * reading that slot until vita_gxm_begin waits, so call this only from the
+ * draw after that wait. count must match the slot. Returns 0 on mismatch. */
+int vita_gxm_mesh_update(void *mesh, const float *xyz, const float *uv, unsigned count);
 void vita_gxm_mesh_reset(void);
 unsigned vita_gxm_mesh_arena_used(void);
 unsigned vita_gxm_last_gpu_wait_us(void);

@@ -669,6 +669,7 @@ so_default_dynlib default_dynlib[] = {
   { "vita_gxm_triangles3d", (uintptr_t)&vita_gxm_triangles3d },
   { "vita_gxm_mesh_create", (uintptr_t)&vita_gxm_mesh_create },
   { "vita_gxm_mesh_draw", (uintptr_t)&vita_gxm_mesh_draw },
+  { "vita_gxm_mesh_update", (uintptr_t)&vita_gxm_mesh_update },
   { "vita_gxm_mesh_reset", (uintptr_t)&vita_gxm_mesh_reset },
   { "vita_gxm_mesh_arena_used", (uintptr_t)&vita_gxm_mesh_arena_used },
   { "vita_gxm_last_gpu_wait_us", (uintptr_t)&vita_gxm_last_gpu_wait_us },

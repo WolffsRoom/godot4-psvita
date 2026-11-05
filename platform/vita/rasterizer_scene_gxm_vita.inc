@@ -39,6 +39,12 @@ public:
         // Local positions and normals in the same flattened order, kept only
         // for surfaces that receive per-vertex lighting.
         Vector<Vector3> positions, normals;
+        // Average vertex color. Sprite3D stores modulate here, and the bridge
+        // draws one color per surface.
+        Color tint = Color(1, 1, 1, 1);
+        // Region update patched the CPU surface. The GPU slot is rewritten on
+        // the next draw, after vita_gxm_begin has waited out the previous frame.
+        bool gpu_dirty = false;
     };
     struct SurfaceInfo {
         bool triangles = false;
@@ -212,7 +218,111 @@ public:
         arena_exhausted = false;
         vita_gxm_mesh_reset();
     }
-    void mesh_free(RID rid) override { invalidate_mesh(rid); RendererDummy::MeshStorage::mesh_free(rid); }
+    HashMap<RID, AABB> custom_aabbs;
+    void drop_decoded_surface(RID rid, int surface) {
+        auto *mesh = decoded.getptr(rid);
+        if (!mesh) return;
+        Array *cached = mesh->getptr(surface);
+        if (!cached) return;
+        PackedVector3Array positions = cached->is_empty() ? PackedVector3Array() : PackedVector3Array((*cached)[RSE::ARRAY_VERTEX]);
+        uint64_t bytes = uint64_t(positions.size()) * 256 + uint64_t(PackedInt32Array((*cached)[RSE::ARRAY_INDEX]).size()) * 4;
+        cache_bytes = cache_bytes > bytes ? cache_bytes - bytes : 0;
+        mesh->erase(surface);
+    }
+    // Dummy mesh storage ignores region updates, so Sprite3D, AnimatedSprite3D
+    // and Label3D quads stay at the vertices from mesh_add_surface. Patch the
+    // stored bytes. A GPU slot is marked dirty and rewritten later, in the
+    // draw, so this does not write arena memory while the previous frame's
+    // GPU work is still reading it. A CPU-fallback copy cannot be patched in
+    // place; drop it and let the next draw flatten the new bytes.
+    void patch_surface(RID rid, int surface, int offset, const Vector<uint8_t> &data, int which) {
+        ERR_FAIL_COND(data.is_empty());
+        RendererDummy::DummyMesh *mesh = get_mesh(rid);
+        ERR_FAIL_NULL(mesh);
+        ERR_FAIL_INDEX(surface, mesh->surfaces.size());
+        ERR_FAIL_INDEX(which, 4);
+        RenderingServerTypes::SurfaceData &stored = mesh->surfaces.write[surface];
+        Vector<uint8_t> *targets[4] = { &stored.vertex_data, &stored.attribute_data, &stored.skin_data, &stored.index_data };
+        Vector<uint8_t> &target = *targets[which];
+        ERR_FAIL_COND(offset < 0 || uint64_t(offset) + uint64_t(data.size()) > uint64_t(target.size()));
+        memcpy(target.ptrw() + offset, data.ptr(), data.size());
+        auto *surfaces = flat.getptr(rid);
+        FlatSurface *value = surfaces ? surfaces->getptr(surface) : nullptr;
+        if (value && value->gpu) {
+            value->gpu_dirty = true;
+            value->positions.clear();
+            value->normals.clear();
+            drop_decoded_surface(rid, surface);
+        } else if (value) {
+            invalidate_mesh(rid);
+        } else {
+            drop_decoded_surface(rid, surface);
+        }
+    }
+    // Returns false when the new triangle count does not fit the slot. The
+    // caller drops the mesh; the old slot is reclaimed on the next arena reset.
+    bool upload_surface(RID rid, int surface) {
+        auto *surfaces = flat.getptr(rid);
+        FlatSurface *value = surfaces ? surfaces->getptr(surface) : nullptr;
+        if (!value || !value->gpu_dirty) return true;
+        if (!value->gpu) return false;
+        Array arrays = RenderingServer::get_singleton()->mesh_create_arrays_from_surface_data(mesh_get_surface(rid, surface));
+        if (arrays.is_empty()) return false;
+        PackedVector3Array positions = arrays[RSE::ARRAY_VERTEX];
+        PackedVector2Array uvs = arrays[RSE::ARRAY_TEX_UV];
+        PackedInt32Array indices = arrays[RSE::ARRAY_INDEX];
+        int count = indices.is_empty() ? positions.size() : indices.size();
+        count -= count % 3;
+        if (count <= 0 || unsigned(count) != value->count) return false;
+        Vector<float> xyz, uv;
+        xyz.resize(count * 3);
+        uv.resize(count * 2);
+        float *xyz_w = xyz.ptrw();
+        float *uv_w = uv.ptrw();
+        for (int i = 0; i < count; i++) {
+            int vertex = indices.is_empty() ? i : indices[i];
+            if (vertex < 0 || vertex >= positions.size()) return false;
+            xyz_w[i * 3] = positions[vertex].x;
+            xyz_w[i * 3 + 1] = positions[vertex].y;
+            xyz_w[i * 3 + 2] = positions[vertex].z;
+            uv_w[i * 2] = vertex < uvs.size() ? uvs[vertex].x : 0.0f;
+            uv_w[i * 2 + 1] = vertex < uvs.size() ? uvs[vertex].y : 0.0f;
+        }
+        if (!vita_gxm_mesh_update(value->gpu, xyz.ptr(), uv.ptr(), unsigned(count))) return false;
+        value->positions.clear();
+        value->normals.clear();
+        value->gpu_dirty = false;
+        set_tint(rid, surface, arrays[RSE::ARRAY_COLOR]);
+        return true;
+    }
+    void set_tint(RID rid, int surface, const PackedColorArray &colors) {
+        auto *entry = flat.getptr(rid);
+        FlatSurface *value = entry ? entry->getptr(surface) : nullptr;
+        if (!value) return;
+        if (colors.is_empty()) {
+            value->tint = Color(1, 1, 1, 1);
+            return;
+        }
+        Color sum(0, 0, 0, 0);
+        for (int i = 0; i < colors.size(); i++) sum += colors[i];
+        value->tint = sum / float(colors.size());
+    }
+    void mesh_surface_update_vertex_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 0); }
+    void mesh_surface_update_attribute_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 1); }
+    void mesh_surface_update_skin_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 2); }
+    void mesh_surface_update_index_region(RID rid, int surface, int offset, const Vector<uint8_t> &data) override { patch_surface(rid, surface, offset, data, 3); }
+    void mesh_set_custom_aabb(RID rid, const AABB &aabb) override {
+        RendererDummy::DummyMesh *mesh = get_mesh(rid);
+        ERR_FAIL_NULL(mesh);
+        if (aabb == AABB()) custom_aabbs.erase(rid);
+        else custom_aabbs[rid] = aabb;
+        mesh->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_AABB);
+    }
+    AABB mesh_get_custom_aabb(RID rid) const override {
+        const AABB *aabb = custom_aabbs.getptr(rid);
+        return aabb ? *aabb : AABB();
+    }
+    void mesh_free(RID rid) override { invalidate_mesh(rid); custom_aabbs.erase(rid); RendererDummy::MeshStorage::mesh_free(rid); }
     void mesh_clear(RID rid) override { invalidate_mesh(rid); RendererDummy::MeshStorage::mesh_clear(rid); }
     void mesh_surface_remove(RID rid, int surface) override { invalidate_mesh(rid); RendererDummy::MeshStorage::mesh_surface_remove(rid, surface); }
     void mesh_add_surface(RID rid, const RenderingServerTypes::SurfaceData &surface) override {
@@ -234,6 +344,8 @@ public:
         return arrays;
     }
     AABB mesh_get_aabb(RID rid, RID skeleton = RID()) override {
+        const AABB *custom = custom_aabbs.getptr(rid);
+        if (custom) return *custom;
         AABB bounds;
         int count = mesh_get_surface_count(rid);
         for (int i = 0; i < count; i++) {
@@ -431,6 +543,22 @@ class GXMScene : public RasterizerSceneDummy {
         void set_layer_mask(uint32_t value) override { layers = value; }
         void set_skeleton(RID rid) override { skeleton = rid; }
     };
+    // Static transparent surfaces, drawn after opaque geometry. Skinned
+    // surfaces stay in the main loop; this pass has no CPU-skin buffer.
+    struct TransparentDraw {
+        void *mesh = nullptr;
+        // CPU-fallback vertices, owned here so a later invalidate of the
+        // source surface cannot free them before this pass draws.
+        Vector<float> xyz, uv;
+        void *texture = nullptr;
+        float matrix[16];
+        uint32_t color = 0;
+        unsigned count = 0;
+        float depth = 0.0f;
+        struct Sort {
+            _FORCE_INLINE_ bool operator()(const TransparentDraw &a, const TransparentDraw &b) const { return a.depth > b.depth; }
+        };
+    };
     struct DrawCandidate {
         Instance *instance = nullptr;
         float center_distance = 0.0f;
@@ -461,6 +589,7 @@ class GXMScene : public RasterizerSceneDummy {
     float submit_average_us = 0.0f;
     float gpu_wait_average_us = 0.0f;
     Vector<DrawCandidate> draw_candidates;
+    Vector<TransparentDraw> transparent_draws;
     Vector<ActiveLight> active_lights;
     // Camera-facing radial glows: the item/note sparkle shader and lamp
     // flares (the original's glow). Drawn after geometry, depth-tested.
@@ -935,12 +1064,18 @@ public:
             draw_candidates.push_back(candidate);
         }
         draw_candidates.sort_custom<DrawCandidate::Sort>();
+        const Vector3 eye = camera->main_transform.origin;
+        Vector3 view_forward = -camera->main_transform.basis.get_column(2);
+        if (view_forward.length_squared() > 0.0001f) view_forward.normalize();
+        transparent_draws.clear();
         drawn_now.clear();
         unsigned structural_drawn = 0, skinned_drawn = 0;
         uint64_t skinned_us = 0;
         for (uint32_t i = 0; i < draw_candidates.size(); i++) {
             auto *instance = draw_candidates[i].instance;
-            const GXMMeshStorage::MeshInfo &info = meshes->get_info(instance->mesh);
+            // Copy: a failed in-place upload drops this mesh's cached info
+            // mid-loop, and a reference into that map would dangle.
+            const GXMMeshStorage::MeshInfo info = meshes->get_info(instance->mesh);
             // Whole instances only: cutting a mesh at the budget leaves holes
             // that move with the camera. Room structure is bound only by the
             // configured ceiling, so the adaptive budget never removes walls.
@@ -983,18 +1118,13 @@ public:
                 }
                 Color color = material_props.albedo;
                 const Variant &tex = material_props.texture;
+                bool texture_alpha = tex.get_type() == Variant::RID && textures->texture_has_alpha(tex);
                 // First use of a texture uploads it to CDRAM inside get_gpu();
                 // count that like a geometry build, not as steady submission.
                 uint64_t texture_started = OS::get_singleton()->get_ticks_usec();
                 void *gpu = tex.get_type() == Variant::RID ? textures->get_gpu(tex) : nullptr;
                 uint64_t texture_us = OS::get_singleton()->get_ticks_usec() - texture_started;
                 if (texture_us > 500) build_us += texture_us;
-                // Opaque static surfaces near the camera get per-vertex light
-                // from a second, multiplicative pass; the first pass then only
-                // carries the distance fade. Far, skinned or transparent
-                // surfaces keep the cheaper per-object tint.
-                bool vertex_lit = vertex_lighting && !bones && color.a > 0.99f &&
-                        !(tex.get_type() == Variant::RID && textures->texture_has_alpha(tex));
                 const GXMMeshStorage::FlatSurface *flat = nullptr;
                 if (!bones) {
                     flat = meshes->get_flat(instance->mesh, s, PackedVector3Array(), PackedVector2Array(), PackedInt32Array());
@@ -1003,11 +1133,41 @@ public:
                         // (including compressed imported vertices) and flatten.
                         uint64_t build_started = OS::get_singleton()->get_ticks_usec();
                         Array arrays = meshes->get_decoded(instance->mesh, s);
-                        if (arrays.is_empty()) continue;
+                        if (arrays.is_empty()) {
+                            build_us += OS::get_singleton()->get_ticks_usec() - build_started;
+                            continue;
+                        }
                         flat = meshes->get_flat(instance->mesh, s, arrays[RSE::ARRAY_VERTEX], arrays[RSE::ARRAY_TEX_UV], arrays[RSE::ARRAY_INDEX]);
+                        if (flat) meshes->set_tint(instance->mesh, s, arrays[RSE::ARRAY_COLOR]);
+                        build_us += OS::get_singleton()->get_ticks_usec() - build_started;
+                    } else if (flat->gpu_dirty) {
+                        // Region update from Sprite3D / ImmediateMesh. Rewrite the
+                        // existing arena slot now that the previous frame is done.
+                        uint64_t build_started = OS::get_singleton()->get_ticks_usec();
+                        if (!meshes->upload_surface(instance->mesh, s)) {
+                            meshes->invalidate_mesh(instance->mesh);
+                            flat = nullptr;
+                            Array arrays = meshes->get_decoded(instance->mesh, s);
+                            if (!arrays.is_empty()) {
+                                flat = meshes->get_flat(instance->mesh, s, arrays[RSE::ARRAY_VERTEX], arrays[RSE::ARRAY_TEX_UV], arrays[RSE::ARRAY_INDEX]);
+                                if (flat) meshes->set_tint(instance->mesh, s, arrays[RSE::ARRAY_COLOR]);
+                            }
+                        }
                         build_us += OS::get_singleton()->get_ticks_usec() - build_started;
                     }
                 }
+                if (flat) {
+                    const Color &vertex_tint = flat->tint;
+                    color.r = MIN(color.r * vertex_tint.r, 1.0f);
+                    color.g = MIN(color.g * vertex_tint.g, 1.0f);
+                    color.b = MIN(color.b * vertex_tint.b, 1.0f);
+                    color.a = MIN(color.a * vertex_tint.a, 1.0f);
+                }
+                // Opaque static surfaces near the camera get per-vertex light
+                // from a second, multiplicative pass; the first pass then only
+                // carries the distance fade. Far, skinned or transparent
+                // surfaces keep the cheaper per-object tint.
+                bool vertex_lit = vertex_lighting && !bones && color.a > 0.99f && !texture_alpha;
                 LitSurface *lit = vertex_lit && flat && flat->gpu ? get_lit_surface(instance, s, flat->count, vertex_budget, build_us) : nullptr;
                 // Until the vertex colors exist, draw once with the tint.
                 bool lit_ready = lit && lit->gpu;
@@ -1025,6 +1185,27 @@ public:
                     color.r = MIN(1.0f, color.r + glow.r);
                     color.g = MIN(1.0f, color.g + glow.g);
                     color.b = MIN(1.0f, color.b + glow.b);
+                }
+                // Alpha-tested texels have no shader discard on this backend.
+                // Drawing them in opaque order with depth writes lets the
+                // clear texels hide whatever is submitted later. Queue static
+                // surfaces and draw them far-to-near with depth writes off.
+                bool transparent = color.a < 0.99f || texture_alpha;
+                if (transparent && !bones && flat) {
+                    TransparentDraw deferred;
+                    deferred.mesh = flat->gpu;
+                    if (!flat->gpu) {
+                        deferred.xyz = flat->xyz;
+                        deferred.uv = flat->uv;
+                    }
+                    deferred.texture = gpu;
+                    memcpy(deferred.matrix, matrix, sizeof(matrix));
+                    deferred.color = gxm_color(color);
+                    deferred.count = flat->gpu ? flat->count : unsigned(flat->xyz.size() / 9) * 3;
+                    deferred.depth = (instance->world_bounds.get_center() - eye).dot(view_forward);
+                    transparent_draws.push_back(deferred);
+                    attempted += deferred.count / 3;
+                    continue;
                 }
                 if (!bones) {
                     if (flat && flat->gpu) {
@@ -1125,6 +1306,27 @@ public:
                 skinned_drawn++;
                 skinned_us += OS::get_singleton()->get_ticks_usec() - skin_started;
             }
+        }
+        unsigned transparent_drawn = 0;
+        if (!transparent_draws.is_empty()) {
+            transparent_draws.sort_custom<TransparentDraw::Sort>();
+            vita_gxm_depth_write(0);
+            for (uint32_t i = 0; i < transparent_draws.size(); i++) {
+                const TransparentDraw &d = transparent_draws[i];
+                if (d.mesh) {
+                    if (vita_gxm_mesh_draw(d.mesh, d.texture, d.matrix, d.color)) {
+                        triangles += d.count / 3;
+                        transparent_drawn++;
+                    }
+                } else if (d.count && d.xyz.size() >= int(d.count) * 3 && d.uv.size() >= int(d.count) * 2) {
+                    for (unsigned offset = 0; offset < d.count; offset += 3072) {
+                        unsigned batch = MIN(3072u, d.count - offset);
+                        if (vita_gxm_triangles3d(d.texture, d.xyz.ptr() + offset * 3, d.uv.ptr() + offset * 2, batch, d.matrix, d.color)) triangles += batch / 3;
+                    }
+                    transparent_drawn++;
+                }
+            }
+            vita_gxm_depth_write(1);
         }
         // Decals as textured quads on their projection plane (the box's local
         // XZ plane through its center), blended over the geometry already
@@ -1248,9 +1450,9 @@ public:
             adaptive_triangle_budget = MIN(configured_budget, adaptive_triangle_budget + 1000);
         }
         if (frames++ < 8 || frames % 300 == 0) {
-            fprintf(stderr, "[gxm3d] frame=%u visible_instances=%llu candidates=%u drawn=%u structural=%u skinned=%u skinned_us=%llu lights=%u decals=%u glows=%u lit=%u rays=%u distance_culled=%u submitted_triangles=%u budget=%u cpu_submit_us=%llu avg_submit_us=%u avg_gpu_wait_us=%u build_us=%u arena_kb=%u invalidations=%u\n",
+            fprintf(stderr, "[gxm3d] frame=%u visible_instances=%llu candidates=%u drawn=%u structural=%u skinned=%u skinned_us=%llu lights=%u decals=%u glows=%u lit=%u rays=%u distance_culled=%u submitted_triangles=%u budget=%u cpu_submit_us=%llu avg_submit_us=%u avg_gpu_wait_us=%u build_us=%u arena_kb=%u invalidations=%u transparent=%u\n",
                     frames, (unsigned long long)instances.size(), (unsigned int)draw_candidates.size(), (unsigned int)drawn_last.size(), structural_drawn, skinned_drawn, (unsigned long long)skinned_us, (unsigned int)active_lights.size(), decals_drawn, glows_drawn, lit_draws, shadow_rays_cast,
-                    distance_culled, triangles, budget, (unsigned long long)submit_us, (unsigned int)submit_average_us, (unsigned int)gpu_wait_average_us, (unsigned int)build_us, vita_gxm_mesh_arena_used() / 1024, meshes->invalidations);
+                    distance_culled, triangles, budget, (unsigned long long)submit_us, (unsigned int)submit_average_us, (unsigned int)gpu_wait_average_us, (unsigned int)build_us, vita_gxm_mesh_arena_used() / 1024, meshes->invalidations, transparent_drawn);
             fflush(stderr);
         }
         if (budget_reached) {

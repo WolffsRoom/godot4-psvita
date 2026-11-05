@@ -29,9 +29,11 @@ static unsigned last_gpu_wait_us;
 /* libvita2d helpers (utils.c): allocate and GPU-map a memory block. */
 void *gpu_alloc(SceKernelMemBlockType type, unsigned int size, unsigned int alignment, unsigned int attribs, SceUID *uid);
 void gpu_free(SceUID uid);
-/* Static mesh arena: bump allocated, reset as a whole by the renderer when
- * its geometry cache is cleared. The GPU is idle between frames because
- * vita_gxm_end waits for rendering, so a reset never races a draw. */
+/* Static mesh arena: bump allocated, reset as a whole when the geometry
+ * cache is cleared. vita_gxm_end does not wait. The next vita_gxm_begin
+ * waits for the previous frame before any new arena write, including
+ * vita_gxm_mesh_update, so a reset or rewrite during the draw does not
+ * race that frame. */
 #define MESH_ARENA_BYTES (24u * 1024u * 1024u)
 typedef struct GXMMesh {
     vita2d_texture_vertex *vertices;
@@ -444,6 +446,21 @@ int vita_gxm_mesh_draw(void *handle, void *texture, const float *mvp, uint32_t c
     for (unsigned offset = 0; offset < mesh->count; offset += 65532u) {
         unsigned batch = mesh->count - offset < 65532u ? mesh->count - offset : 65532u;
         vita2d_draw_array_textured(t, SCE_GXM_PRIMITIVE_TRIANGLES, mesh->vertices + offset, batch, color);
+    }
+    return 1;
+}
+/* Same vertex count as vita_gxm_mesh_create. Uncached arena memory, so the
+ * write is visible to the GPU without a flush. See the arena comment. */
+int vita_gxm_mesh_update(void *handle, const float *xyz, const float *uv, unsigned count) {
+    GXMMesh *mesh = handle;
+    if (!mesh || !xyz || count != mesh->count || (count % 3u) != 0) return 0;
+    for (unsigned i = 0; i < count; i++) {
+        vita2d_texture_vertex *v = &mesh->vertices[i];
+        v->x = xyz[i * 3];
+        v->y = xyz[i * 3 + 1];
+        v->z = xyz[i * 3 + 2];
+        v->u = uv ? uv[i * 2] : 0.0f;
+        v->v = uv ? uv[i * 2 + 1] : 0.0f;
     }
     return 1;
 }
