@@ -28,7 +28,7 @@ jobs:
             build: platform/vita/tools/build_linux_editor.sh
             payload: _build/editor-linux/Godot4Vita
             artifact: Godot4Vita-v0.3-Linux-x86_64.zip
-          - runner: macos-14
+          - runner: macos-15
             host: macos
             arch: universal
             build: platform/vita/tools/build_macos_editor.sh
