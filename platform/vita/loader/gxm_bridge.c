@@ -19,6 +19,8 @@ static int scene3d_enabled;
 typedef struct GXMTexture {
     vita2d_texture *texture;
     size_t bytes;
+    int width, height;
+    int rgba4444;
     struct GXMTexture *next;
 } GXMTexture;
 static GXMTexture *retired;
@@ -159,6 +161,9 @@ void *vita_gxm_texture_create(int width, int height, const uint8_t *rgba) {
         }
     }
     t->bytes = bytes;
+    t->width = width;
+    t->height = height;
+    t->rgba4444 = texture_rgba4444;
     texture_bytes += bytes;
     texture_upload_count++;
     if (texture_upload_count <= 16 || texture_upload_count % 128 == 0) {
@@ -167,6 +172,29 @@ void *vita_gxm_texture_create(int width, int height, const uint8_t *rgba) {
         fflush(stderr);
     }
     return t;
+}
+int vita_gxm_texture_readback_supported(void) {
+    return 1;
+}
+/* Textures live in CPU-mapped memory and are written only at creation, so
+ * reading them back needs no GPU synchronisation. */
+int vita_gxm_texture_read(void *texture, uint8_t *rgba, int width, int height) {
+    GXMTexture *t = texture;
+    if (!t || !t->texture || !rgba || width != t->width || height != t->height) return 0;
+    const uint8_t *data = vita2d_texture_get_datap(t->texture);
+    unsigned stride = vita2d_texture_get_stride(t->texture);
+    if (!data) return 0;
+    for (int y = 0; y < height; y++) {
+        const uint8_t *source = data + (size_t)y * stride;
+        uint8_t *destination = rgba + (size_t)y * width * 4;
+        if (t->rgba4444) {
+            const uint16_t *words = (const uint16_t *)source;
+            for (int x = 0; x < width; x++) vita_unpack_rgba4444(words[x], destination + x * 4);
+        } else {
+            memcpy(destination, source, (size_t)width * 4);
+        }
+    }
+    return 1;
 }
 void vita_gxm_texture_free(void *texture) {
     GXMTexture *t = texture;

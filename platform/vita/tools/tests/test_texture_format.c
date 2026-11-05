@@ -19,11 +19,18 @@ int main(void) {
             assert(reconstructed - i <= 8 && i - reconstructed <= 8);
         }
     }
+    /* Readback must be stable: unpack then pack gives back the same word, so
+     * an image read from the GPU and uploaded again loses nothing more. */
+    for (unsigned word = 0; word < 65536; word++) {
+        uint8_t rgba[4];
+        vita_unpack_rgba4444((uint16_t)word, rgba);
+        assert(vita_pack_rgba4444(rgba) == word);
+    }
     assert(vita_texture_allocation_bytes(1024, 1024, 4) == 4194304);
     assert(vita_texture_allocation_bytes(1024, 1024, 2) == 2097152);
     assert(vita_texture_allocation_bytes(32, 32, 4) == 262144);
     assert(vita_texture_allocation_bytes(32, 32, 2) == 262144);
     assert(vita_texture_allocation_bytes(257, 512, 2) == 524288);
-    puts("PASS: ABGR channel order, alpha, quantization error <=8, stride and CDRAM accounting");
+    puts("PASS: ABGR channel order, alpha, quantization error <=8, readback round trip, stride and CDRAM accounting");
     return 0;
 }

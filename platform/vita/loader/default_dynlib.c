@@ -668,6 +668,8 @@ so_default_dynlib default_dynlib[] = {
   { "vita_gxm_init", (uintptr_t)&vita_gxm_init },
   { "vita_gxm_texture_create", (uintptr_t)&vita_gxm_texture_create },
   { "vita_gxm_texture_free", (uintptr_t)&vita_gxm_texture_free },
+  { "vita_gxm_texture_readback_supported", (uintptr_t)&vita_gxm_texture_readback_supported },
+  { "vita_gxm_texture_read", (uintptr_t)&vita_gxm_texture_read },
   { "vita_gxm_texture_quad", (uintptr_t)&vita_gxm_texture_quad },
   { "vita_gxm_begin", (uintptr_t)&vita_gxm_begin },
   { "vita_gxm_scene3d_end", (uintptr_t)&vita_gxm_scene3d_end },

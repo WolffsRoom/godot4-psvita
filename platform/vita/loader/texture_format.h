@@ -11,6 +11,14 @@ static inline uint16_t vita_pack_rgba4444(const uint8_t *rgba) {
             (((rgba[3] + 8u) / 17u) << 12));
 }
 
+/* Inverse of vita_pack_rgba4444: each nibble n becomes n * 17. */
+static inline void vita_unpack_rgba4444(uint16_t word, uint8_t *rgba) {
+    rgba[0] = (uint8_t)((word & 0xfu) * 17u);
+    rgba[1] = (uint8_t)(((word >> 4) & 0xfu) * 17u);
+    rgba[2] = (uint8_t)(((word >> 8) & 0xfu) * 17u);
+    rgba[3] = (uint8_t)(((word >> 12) & 0xfu) * 17u);
+}
+
 static inline size_t vita_texture_allocation_bytes(int width, int height, int bytes_per_pixel) {
     return ((((size_t)width + 7u) & ~(size_t)7u) * (size_t)height * (size_t)bytes_per_pixel + 262143u) & ~(size_t)262143u;
 }

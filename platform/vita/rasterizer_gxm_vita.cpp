@@ -26,9 +26,12 @@ class GXMTextureStorage : public RendererDummy::TextureStorage {
     mutable RID_Owner<Target> targets;
     RID screen;
     struct Texture {
+        // RGBA8 pixels, kept only until the GPU copy exists when the bridge
+        // can read textures back (see upload()).
         Ref<Image> image;
         Image::Format format = Image::FORMAT_MAX;
         Size2i size;
+        Size2i image_size; // Pixel size of the uploaded data (size may be overridden).
         void *gpu = nullptr;
         unsigned long long failed_epoch = ~0ULL;
         bool has_alpha = false;
@@ -41,6 +44,17 @@ class GXMTextureStorage : public RendererDummy::TextureStorage {
     HashMap<RID, RID> proxies;
     HashMap<RID, CanvasTexture> canvas_textures;
     unsigned long long allocation_epoch = 0;
+    bool readback = vita_gxm_texture_readback_supported() != 0;
+
+    // Creates the GPU copy. With readback, the RGBA8 image is then released:
+    // it doubled each texture's RAM cost for the whole run (a 1667x943 image
+    // kept 6 MiB of RAM next to its 3 MiB RGBA4444 copy in CDRAM).
+    bool upload(Texture &t) {
+        t.gpu = vita_gxm_texture_create(t.image_size.x, t.image_size.y, t.image->get_data().ptr());
+        if (!t.gpu) return false;
+        if (readback) t.image.unref();
+        return true;
+    }
 public:
     void release_gpu() {
         for (KeyValue<RID, Texture> &entry : textures) {
@@ -74,9 +88,14 @@ public:
         t.image = rgba;
         t.format = image->get_format();
         t.size = Size2i(image->get_width(), image->get_height());
+        t.image_size = Size2i(rgba->get_width(), rgba->get_height());
         // Cut-out and blended textures skip the multiplicative lighting pass,
         // which would also darken whatever shows through their holes.
         t.has_alpha = rgba->detect_alpha() != Image::ALPHA_NONE;
+        // Upload while the game is loading instead of on the first frame
+        // that draws the texture. If the renderer is not up yet or the GPU
+        // budget is full, get_gpu() retries lazily as before.
+        upload(t);
         textures.insert(rid, t);
     }
     void texture_2d_update(RID rid, const Ref<Image> &image, int layer = 0) override {
@@ -85,7 +104,14 @@ public:
     }
     Ref<Image> texture_2d_get(RID rid) const override {
         const Texture *t = textures.getptr(resolve(rid));
-        return t ? t->image : Ref<Image>();
+        if (!t) return Ref<Image>();
+        if (t->image.is_valid() || !t->gpu) return t->image;
+        // Rare path (Texture2D.get_image(), tiled sheets): read the GPU copy
+        // back instead of keeping RGBA8 resident. Not cached.
+        Vector<uint8_t> data;
+        data.resize(t->image_size.x * t->image_size.y * 4);
+        if (!vita_gxm_texture_read(t->gpu, data.ptrw(), t->image_size.x, t->image_size.y)) return Ref<Image>();
+        return Image::create_from_data(t->image_size.x, t->image_size.y, false, Image::FORMAT_RGBA8, data);
     }
     Image::Format texture_get_format(RID rid) const override {
         const Texture *t = textures.getptr(resolve(rid));
@@ -194,15 +220,15 @@ public:
             return rt ? rt->gpu : nullptr;
         }
         Texture *t = textures.getptr(base);
-        if (!t || t->image.is_null()) return nullptr;
-        if (!t->gpu) {
+        if (!t) return nullptr;
+        if (t->gpu) return t->gpu;
+        if (t->image.is_null()) return nullptr;
+        {
             // When the GPU budget is exhausted, suppress *per-frame* retries
             // for the same texture until something has been freed. Previously
             // 60,000+ errors tanked FPS and caused log writes each frame.
             if (t->failed_epoch == allocation_epoch) return nullptr;
-            t->gpu = vita_gxm_texture_create(t->image->get_width(),
-                    t->image->get_height(), t->image->get_data().ptr());
-            if (!t->gpu) {
+            if (!upload(*t)) {
                 t->failed_epoch = allocation_epoch;
                 static unsigned failed_once;
                 if (failed_once++ < 8) {

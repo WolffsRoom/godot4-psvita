@@ -45,6 +45,12 @@ void vita_gxm_blend_add(int enabled);
 void vita_gxm_quad(const float *xy, uint32_t color);
 void *vita_gxm_texture_create(int width, int height, const uint8_t *rgba);
 void vita_gxm_texture_free(void *texture);
+/* CPU readback of a texture made by vita_gxm_texture_create, as RGBA8.
+ * When supported, the renderer drops its RGBA8 copy after upload and reads
+ * the pixels back only if something asks for the image. RGBA4444 textures
+ * come back at 4-bit precision. Returns 1 on success. */
+int vita_gxm_texture_readback_supported(void);
+int vita_gxm_texture_read(void *texture, uint8_t *rgba, int width, int height);
 void vita_gxm_texture_quad(void *texture, const float *xy, const float *uv, uint32_t color, int linear);
 void vita_gxm_clip(int enabled, int x, int y, int width, int height);
 /* Offscreen render targets (SubViewport): create, then begin/end around the

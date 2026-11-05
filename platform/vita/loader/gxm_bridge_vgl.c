@@ -418,6 +418,14 @@ void *vita_gxm_texture_create(int width, int height, const uint8_t *rgba) {
 /* VitaGL defers the release of texture memory until the GPU is done with
  * it, so no retired list is needed here. A pending batch is flushed first
  * because it still references the texture by id. */
+/* Not implemented on VitaGL: the renderer keeps its RGBA8 copy. */
+int vita_gxm_texture_readback_supported(void) {
+    return 0;
+}
+int vita_gxm_texture_read(void *texture, uint8_t *rgba, int width, int height) {
+    (void)texture; (void)rgba; (void)width; (void)height;
+    return 0;
+}
 void vita_gxm_texture_free(void *texture) {
     VGLTexture *t = texture;
     if (!t) return;
