@@ -50,26 +50,53 @@ class GXMCanvas : public RasterizerCanvasDummy {
         bool linear = false;
     };
 
-    // Consecutive commands mostly use the same texture (tiles, glyphs, UI
-    // atlas). Each full resolve costs several RID hash lookups, so the last
-    // result is reused within one canvas_render_items call.
-    RID cached_rid;
-    int cached_filter = -1;
-    bool cached_ok = false;
-    Tex cached_tex;
+    // A full resolve costs several RID hash lookups (proxy chain, render
+    // target map, texture map, canvas-texture filter). Interleaved sprites
+    // from a few textures defeated a single-entry cache (+~4 ms of canvas
+    // time per frame with 8 alternating textures on device), so a small
+    // round-robin cache is kept, valid within one canvas_render_items call.
+    static constexpr int TEX_CACHE_SIZE = 8;
+    struct TexCacheEntry {
+        RID rid;
+        int filter = -1;
+        bool ok = false;
+        Tex tex;
+    };
+    TexCacheEntry tex_cache[TEX_CACHE_SIZE];
+    int tex_cache_next = 0;
+    int tex_cache_last = 0;
+
+    void clear_texture_cache() {
+        for (TexCacheEntry &entry : tex_cache) entry.rid = RID();
+        tex_cache_next = 0;
+        tex_cache_last = 0;
+    }
 
     bool resolve_texture(RID texture, const Item *item, RSE::CanvasItemTextureFilter default_filter, Tex &r_tex) {
         if (!texture.is_valid()) return true; // Untextured: flat color.
         const int filter_key = int(item->texture_filter) * 16 + int(default_filter);
-        if (texture == cached_rid && filter_key == cached_filter) {
-            r_tex = cached_tex;
-            return cached_ok;
+        // Most consecutive commands repeat the last texture: check it first.
+        const TexCacheEntry &last = tex_cache[tex_cache_last];
+        if (last.rid == texture && last.filter == filter_key) {
+            r_tex = last.tex;
+            return last.ok;
         }
-        cached_rid = texture;
-        cached_filter = filter_key;
-        cached_ok = resolve_texture_uncached(texture, item, default_filter, cached_tex);
-        r_tex = cached_tex;
-        return cached_ok;
+        for (int i = 0; i < TEX_CACHE_SIZE; i++) {
+            const TexCacheEntry &entry = tex_cache[i];
+            if (entry.rid == texture && entry.filter == filter_key) {
+                tex_cache_last = i;
+                r_tex = entry.tex;
+                return entry.ok;
+            }
+        }
+        TexCacheEntry &slot = tex_cache[tex_cache_next];
+        tex_cache_last = tex_cache_next;
+        tex_cache_next = (tex_cache_next + 1) % TEX_CACHE_SIZE;
+        slot.rid = texture;
+        slot.filter = filter_key;
+        slot.ok = resolve_texture_uncached(texture, item, default_filter, slot.tex);
+        r_tex = slot.tex;
+        return slot.ok;
     }
 
     bool resolve_texture_uncached(RID texture, const Item *item, RSE::CanvasItemTextureFilter default_filter, Tex &r_tex) {
@@ -668,7 +695,7 @@ public:
         offset_x = 0;
         offset_y = 0;
         snap = p_snap;
-        cached_rid = RID(); // Textures may have been freed since the last call.
+        clear_texture_cache(); // Textures may have been freed since the last call.
         // Any target other than the screen is a SubViewport: render it into
         // its own GXM texture (the viewport maps the 960x544 space onto it).
         const bool offscreen = !storage->is_screen(target);
