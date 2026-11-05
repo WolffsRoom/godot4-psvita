@@ -324,7 +324,7 @@ func _build_ui() -> void:
 	ui_results = Control.new()
 	ui_results.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(ui_results)
-	var table := _panel(ui_results, Rect2(180, 70, 600, 0))
+	var table := _panel(ui_results, Rect2(220, 70, 520, 0))
 	var table_box := VBoxContainer.new()
 	table_box.add_theme_constant_override("separation", 8)
 	table.add_child(table_box)
@@ -502,7 +502,7 @@ func _environment(full: bool) -> Node3D:
 	panel_mesh.size = Vector3(1.6, 5.0, 0.2)
 	var strip_mesh := BoxMesh.new()
 	strip_mesh.size = Vector3(0.06, 5.0, 0.22)
-	var panel_material := _material(Color(0.085, 0.105, 0.15), null, true)
+	var panel_material := _material(Color(0.13, 0.16, 0.22))
 	var strip_material := _material(GODOT_BLUE.lightened(0.2))
 	for i in 9:
 		var angle := deg_to_rad(-64.0 + i * 16.0)
@@ -515,13 +515,13 @@ func _environment(full: bool) -> Node3D:
 			s.rotation.y = -strip_angle
 	var logo := Sprite3D.new()
 	logo.texture = godot_logo
-	logo.pixel_size = 0.011
+	logo.pixel_size = 0.0058
 	logo.position = Vector3(0, 3.7, -7.2)
 	world.add_child(logo)
 	var caption := Label3D.new()
 	caption.text = "NATIVE GXM 3D  |  PS VITA"
-	caption.font_size = 36
-	caption.pixel_size = 0.01
+	caption.font_size = 32
+	caption.pixel_size = 0.0065
 	caption.modulate = TEXT_DIM
 	caption.position = Vector3(0, 2.25, -7.15)
 	world.add_child(caption)
@@ -591,7 +591,7 @@ func _build_scene() -> void:
 		tux.rotation.y = sin(t * 0.9) * 0.35
 		tux.rotation.z = sin(t * 4.0) * 0.04
 		if plush:
-			plush.rotation.y = PI + sin(t * 0.7) * 0.4
+			plush.rotation.y = sin(t * 0.7) * 0.4
 		counter.text = "FRAME %06d" % frame_counter
 		for i in icons.size():
 			var a := t * 0.5 + i * TAU / icons.size()
@@ -642,10 +642,10 @@ func _build_labels() -> void:
 	var labels: Array[Label3D] = []
 	for i in 24:
 		var label := Label3D.new()
-		label.font_size = 30
-		label.pixel_size = 0.009
+		label.font_size = 28
+		label.pixel_size = 0.006
 		label.modulate = Color("8fdc8f") if i % 2 == 0 else Color.WHITE
-		label.position = Vector3((i % 6 - 2.5) * 1.9, 0.6 + (i / 6) * 0.8, -1.0 + (i / 6) * 0.4)
+		label.position = Vector3((i % 4 - 1.5) * 2.2, 0.5 + (i / 4) * 0.55, -1.0)
 		world.add_child(label)
 		labels.append(label)
 	var move := _camera(world, 9.0, 3.0, 0.45)
@@ -661,6 +661,5 @@ func _build_plush_crowd() -> void:
 		var plush := _make_plush(world, animations[i])
 		if plush:
 			plush.position = Vector3((i % 3 - 1) * 2.4, 0.08, -1.0 + (i / 3) * 2.4)
-			plush.rotation.y = PI
 			plush.scale = Vector3.ONE * 0.7
 	updater = _camera(world, 9.0, 3.4, 0.45)
