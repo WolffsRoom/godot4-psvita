@@ -96,7 +96,7 @@ Godot 4 does not run on the PS Vita out of the box: the Vita has a 444 MHz quad-
 
 Version 0.2 turns the first editor/runtime proof of concept into a more practical PS Vita development package:
 
-- **Portable Windows editor:** the v0.2 release includes the complete zipped editor, with the PS Vita export platform and templates ready to use. Linux and macOS distributions are being added for v0.3.
+- **Portable Windows editor:** the v0.2 release includes the complete zipped editor, with the PS Vita export platform and templates ready to use. Linux x86_64 and universal macOS distributions are built and export-tested by GitHub Actions on the `test` branch for v0.3.
 - **PCK-first exports:** projects are exported as a single `game.pck` by default. Developers can still choose loose files under `game_data` when that layout is useful for testing or patching.
 - **Built-in Vita export workflow:** VPK creation, separate `ux0:data/<game>/` folders, CapUnlocker configuration, RGBA4444/RGBA8888 textures and LiveArea previews are available from the Godot export dialog.
 - **Improved native GXM 3D:** repaired `AnimatedSprite3D` frame updates, Sprite3D tint/modulation, transparent-surface ordering, native 3D followed by a sharp 2D canvas pass, light flares, decals, distance culling and an optional tilt-shift resolve.
@@ -452,18 +452,18 @@ python platform/vita/tools/archive_windows_editor.py
 Linux x86_64 editor and portable ZIP:
 
 ```bash
-platform/vita/tools/build_linux_editor.sh
+platform/vita/tools/build_linux_editor.sh "$PWD/_build/editor-linux"
 python platform/vita/tools/package_editor_distribution.py --platform linux --arch x86_64 --payload _build/editor-linux/Godot4Vita --support /path/to/portable-support --output releases/Godot4Vita-v0.3-Linux-x86_64.zip
 ```
 
 Universal macOS editor (Intel + Apple Silicon) and portable ZIP:
 
 ```bash
-platform/vita/tools/build_macos_editor.sh
+platform/vita/tools/build_macos_editor.sh "$PWD/_build/editor-macos"
 python platform/vita/tools/package_editor_distribution.py --platform macos --arch universal --payload _build/editor-macos/Godot4Vita.app --support /path/to/portable-support --output releases/Godot4Vita-v0.3-macOS-universal.zip
 ```
 
-`portable-support` is the extracted editor distribution containing `vita/templates/vita_release.zip`. The manual **Godot4Vita editor distributions** workflow performs both native builds and publishes checksummed artifacts for validation before a release.
+`portable-support` is the extracted editor distribution containing `vita/templates/vita_release.zip`. Without an argument the build scripts write to `../_build/` beside the checkout. The **Godot4Vita editor distributions** workflow builds the Linux editor on Ubuntu 22.04 and the macOS editor on macOS 15, exports a sample project to a VPK with each, and publishes checksummed artifacts for validation before a release.
 
 See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/vita/editor/INTEGRATED_WINDOWS.md) and [GXM_BACKEND.md](platform/vita/GXM_BACKEND.md).
 
