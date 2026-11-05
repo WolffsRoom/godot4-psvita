@@ -113,7 +113,8 @@ jobs:
               assert archive.testzip() is None
               required = {'eboot.bin', 'libgodot.so', 'sce_sys/param.sfo', 'game_data_folder.cfg'}
               assert required <= set(archive.namelist())
-          pck = temp / 'exemplovita' / 'game_data' / 'game.pck'
+          # v0.3 separate-folder layout: <folder>/game.pck (+ logs/ on the Vita).
+          pck = temp / 'exemplovita' / 'game.pck'
           assert pck.read_bytes()[:4] == b'GDPC'
           PY
 
