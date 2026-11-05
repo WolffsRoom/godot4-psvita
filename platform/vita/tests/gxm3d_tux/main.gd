@@ -519,8 +519,8 @@ func _environment(full: bool) -> Node3D:
 	logo.position = Vector3(0, 3.7, -7.2)
 	world.add_child(logo)
 	var caption := Label3D.new()
-	caption.text = "NATIVE GXM 3D  |  PS VITA"
-	caption.font_size = 32
+	caption.text = "NATIVE GXM 3D"
+	caption.font_size = 52
 	caption.pixel_size = 0.0065
 	caption.modulate = TEXT_DIM
 	caption.position = Vector3(0, 2.25, -7.15)
@@ -638,14 +638,14 @@ func _build_overlap() -> void:
 	updater = _camera(world, 10.0, 3.5, 0.5)
 
 func _build_labels() -> void:
-	var world := _environment(true)
+	var world := _environment(false)
 	var labels: Array[Label3D] = []
 	for i in 24:
 		var label := Label3D.new()
 		label.font_size = 28
 		label.pixel_size = 0.006
 		label.modulate = Color("8fdc8f") if i % 2 == 0 else Color.WHITE
-		label.position = Vector3((i % 4 - 1.5) * 2.2, 0.5 + (i / 4) * 0.55, -1.0)
+		label.position = Vector3((i % 4 - 1.5) * 2.2, 0.9 + (i / 4) * 0.55, -1.0)
 		world.add_child(label)
 		labels.append(label)
 	var move := _camera(world, 9.0, 3.0, 0.45)
