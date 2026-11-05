@@ -867,3 +867,21 @@ void vita_gxm_finish(void) {
     /* This VitaGL build has no public teardown; the context lives on. */
     initialized = 0;
 }
+
+/* Native Cg canvas shaders need the GXM shader patcher, which this bridge
+ * does not own. Report the compiler as disabled so the canvas keeps its
+ * fallback path; the entry points exist so the loader links and resolves
+ * every vita_gxm_* import in default_dynlib.c. */
+int vita_gxm_canvas_compiler_idle(void) { return 1; }
+int vita_gxm_canvas_shader_compiler_enabled(void) { return 0; }
+int vita_gxm_canvas_shader_create(const char *cg_source) { (void)cg_source; return 0; }
+int vita_gxm_canvas_shader_draw(int shader_handle, void *texture, void *screen_texture,
+		const float *xy, const float *uv, uint32_t color,
+		const VitaGXMCanvasUniform *uniforms, unsigned uniform_count,
+		const VitaGXMCanvasSampler *samplers, unsigned sampler_count) {
+	(void)shader_handle; (void)texture; (void)screen_texture; (void)xy; (void)uv; (void)color;
+	(void)uniforms; (void)uniform_count; (void)samplers; (void)sampler_count;
+	return 0;
+}
+int vita_gxm_canvas_screen_begin(uint32_t color) { (void)color; return 0; }
+void *vita_gxm_canvas_screen_snapshot(void) { return NULL; }
