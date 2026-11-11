@@ -21,6 +21,16 @@ namespace {
 
 constexpr uint64_t PREFETCH_CAPACITY = 3 * 128 * 1024;
 
+// GODOT_VITA_PCK_PREFETCH_PAUSE=1 (OS.set_environment from a script) makes
+// the next reads bypass the read-ahead window while the worker stays alive,
+// so one run can compare reads with and without the prefetch. Each change is
+// logged with the counters so far. Only meant for test projects: set it
+// between reads, from the main thread.
+bool prefetch_paused() {
+	const char *value = getenv("GODOT_VITA_PCK_PREFETCH_PAUSE");
+	return value && value[0] == '1';
+}
+
 class VitaPCKPrefetch {
 	Thread worker;
 	Mutex mutex;
@@ -45,6 +55,19 @@ class VitaPCKPrefetch {
 	uint64_t hit_bytes = 0;
 	uint64_t disk_bytes = 0;
 	uint64_t unused_bytes = 0;
+	bool paused = false;
+
+	bool _check_paused() {
+		bool now = prefetch_paused();
+		if (now != paused) {
+			MutexLock lock(mutex);
+			paused = now;
+			fprintf(stderr, "[vita-io] PCK prefetch paused=%d requests=%llu hits=%llu hit_bytes=%llu disk_bytes=%llu\n", paused ? 1 : 0,
+					(unsigned long long)requests, (unsigned long long)hits, (unsigned long long)hit_bytes, (unsigned long long)disk_bytes);
+			fflush(stderr);
+		}
+		return now;
+	}
 
 	static void _thread_entry(void *p_userdata) {
 		static_cast<VitaPCKPrefetch *>(p_userdata)->_thread_loop();
@@ -134,7 +157,7 @@ public:
 	}
 
 	bool try_read(const String &p_pack, uint64_t p_offset, uint8_t *p_dst, uint64_t p_length) {
-		if (!ensure_started() || p_length == 0) {
+		if (!ensure_started() || p_length == 0 || _check_paused()) {
 			return false;
 		}
 		MutexLock lock(mutex);
@@ -150,7 +173,7 @@ public:
 	}
 
 	void schedule(const String &p_pack, uint64_t p_offset, uint64_t p_length) {
-		if (!ensure_started() || p_length == 0) {
+		if (!ensure_started() || p_length == 0 || _check_paused()) {
 			return;
 		}
 		bool post = false;
