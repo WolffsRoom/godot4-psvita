@@ -40,7 +40,7 @@
 <summary><b>Overview and Features</b></summary>
 
 - [What This Project Is](#what-this-project-is)
-- [What's New in v0.2](#whats-new-in-v02)
+- [What's New in v0.3](#whats-new-in-v03)
 - [Desktop Editors with PS Vita Export](#desktop-editors-with-ps-vita-export)
 - [LiveArea Template Selection with Previews](#livearea-template-selection-with-previews)
 - [PS Vita Trophies (In Development)](#ps-vita-trophies-in-development)
@@ -91,19 +91,22 @@ Godot 4 does not run on the PS Vita out of the box: the Vita has a 444 MHz quad-
 
 ---
 
-<a id="whats-new-in-v02"></a>
-<h2 align="center"><img src="docs/images/headings/light/whats-new-in-v02.png#gh-light-mode-only" alt="What's new in v0.2" width="900"><img src="docs/images/headings/dark/whats-new-in-v02.png#gh-dark-mode-only" alt="What's new in v0.2" width="900"></h2>
+<a id="whats-new-in-v03"></a>
+<h2 align="center"><img src="docs/images/headings/light/whats-new-in-v03.png#gh-light-mode-only" alt="What's new in v0.3" width="900"><img src="docs/images/headings/dark/whats-new-in-v03.png#gh-dark-mode-only" alt="What's new in v0.3" width="900"></h2>
 
-Version 0.2 turns the first editor/runtime proof of concept into a more practical PS Vita development package:
+Version 0.3 focuses on memory, storage I/O and the native GXM renderer, and brings the PS Vita export to Linux and macOS:
 
-- **Portable Windows editor:** the v0.2 release includes the complete zipped editor, with the PS Vita export platform and templates ready to use. Linux x86_64 and universal macOS distributions are built and export-tested by GitHub Actions on the `test` branch for v0.3.
-- **PCK-first exports:** projects are exported as a single `game.pck` by default. Developers can still choose loose files under `game_data` when that layout is useful for testing or patching.
-- **Built-in Vita export workflow:** VPK creation, separate `ux0:data/<game>/` folders, CapUnlocker configuration, RGBA4444/RGBA8888 textures and LiveArea previews are available from the Godot export dialog.
-- **Improved native GXM 3D:** repaired `AnimatedSprite3D` frame updates, Sprite3D tint/modulation, transparent-surface ordering, native 3D followed by a sharp 2D canvas pass, light flares, decals, distance culling and an optional tilt-shift resolve.
-- **Improved native GXM 2D:** batching, NinePatch, polygons, bitmap/atlas fonts, SubViewport render targets, clipping and front-touch input are exercised by real projects.
-- **Standard Godot4Vita presentation:** exported VPKs use the Godot icon and the default Godot4Vita LiveArea unless a project supplies its own assets.
-- **v0.2 showcase:** a demonstration VPK combines a controllable rigged 3D character, orbit/zoom camera, jump and roll animations, lighting/effects and a layered 2D preview. Press **Select** for 2D and **Start** for 3D.
-- **More real-game validation:** the gallery below now includes 2D and 3D projects running on the engine, including Lantern Crossing by jeeve-javari.
+- **Desktop editors for Windows, Linux and macOS:** portable editors for Windows x64, Linux x86_64 and universal macOS (Intel + Apple Silicon), all with the same built-in PS Vita export platform and runtime template.
+- **PCK prefetch:** with CapUnlocker installed, a worker on the fourth CPU core reads ahead sequential `game.pck` reads (up to three 128 KiB blocks). On hardware, reading a 1.5 MiB file from the PCK went from about 470 ms to about 265 ms (44% faster). Enabled by default with **Performance > PCK Prefetch**; without CapUnlocker the game runs normally without it.
+- **Lower memory use:** textures are uploaded to the GPU when they load and the RGBA8 copy in RAM is freed (images stay readable through GPU readback with `Texture2D.get_image()`). The GXM 3D mesh arena now lives in CDRAM instead of user memory.
+- **Godot 3 audio layout by default:** `audio/vita/output_mode="godot3"` keeps the BGM port at the project mix rate with a dedicated mixer thread, the layout that plays without distortion on hardware.
+- **Simpler data folder:** with **Separate Folder** on, the export produces the VPK and one `<folder>/` with `game.pck` and `logs/`; copy that whole folder to `ux0:data/`. All five startup and runtime logs go to `ux0:data/<folder>/logs/`, and a missing external PCK is reported instead of starting an empty project.
+- **Native GXM 3D fixes:** Sprite3D, AnimatedSprite3D and Label3D updates are written at draw time after the previous frame finishes, surfaces on the CPU fallback path join the sorted transparent pass, and custom AABBs reset correctly. Thanks to [jeeve-javari](https://github.com/jeeve-javari) for the investigation and fixes.
+- **Faster 2D canvas:** texture lookups are cached across draws; in the mixed-texture benchmark canvas CPU time dropped from 5.5–6.5 ms to 3.1–4.0 ms per frame. The project's startup V-Sync mode is honoured.
+- **Experimental shader compiler (off by default):** **Rendering > Shader Compiler** can compile translated CanvasItem shaders on the console with vitaShaRK and the user's own `libshacccg.suprx` (never bundled). Simple Cg programs compile on hardware, translated CanvasItem shaders do not yet; keep it on `disabled` for releases.
+- **v0.3 self test:** [`platform/vita/tests/v0_3_selftest`](platform/vita/tests/v0_3_selftest) is one VPK that runs the renderer benchmark, the GXM 3D feature test and the v0.3 showcase (PCK prefetch comparison and audio) by itself, then writes a report to `ux0:data/g4v03selftest/logs/`.
+
+**Upgrading from v0.2:** re-export your projects with the v0.3 editor. Games with a forked loader (their own `gxm_bridge.c` / `default_dynlib.c`) must add the `vita_gxm_texture_readback_supported` and `vita_gxm_texture_read` imports, or they abort at boot. The v0.2 changes are listed in the [v0.2 release](https://github.com/WolffsRoom/godot4-psvita/releases/tag/v0.2).
 
 The 3D renderer is still experimental. Compatibility and performance must be validated on real PS Vita hardware for each project.
 
@@ -133,8 +136,11 @@ Starting with v0.3, the distribution set includes portable editors for Windows x
 | Option | Effect |
 |---|---|
 | **Data > Separate Folder** (default on) | Produces `Game.vpk` and a sibling `<Folder Name>/` containing only `game.pck` and an empty `logs/` directory. Install the VPK normally and copy that complete folder to `ux0:data/`. Re-installing a large game no longer requires rebuilding a huge VPK. Turn it off to put everything inside the VPK. Earlier exports are kept with a `.previous-…` suffix. |
-| **Performance > CapUnlocker** | `disabled`, `optional` (uses the fourth CPU core when the CapUnlocker plugin is installed) or `required` (shows instructions and exits when missing). When available, the audio mixer can run on the reserved core. |
+| **Data > Package Format** | `PCK` (default, one `game.pck`) or loose files under `game_data`, useful for testing or patching. |
+| **Performance > CapUnlocker** | `disabled`, `optional` (uses the fourth CPU core when the CapUnlocker plugin is installed) or `required` (shows instructions and exits when missing). |
+| **Performance > PCK Prefetch** (default on) | With CapUnlocker available, reads ahead sequential `game.pck` reads on the fourth core. Has no effect without CapUnlocker or with loose files. Its counters are written to `godot_stderr.log` when the game exits. |
 | **Textures > GPU Format** | `RGBA4444` (default, half the GPU memory and transfer size) or `RGBA8888` (full precision for gradients and soft alpha). The conversion happens when the loader uploads each texture; project files are not changed. |
+| **Rendering > Shader Compiler** | `disabled` (default), `safe` or `experimental`. Experimental on-console compilation of translated CanvasItem shaders; needs the user's own `ur0:data/libshacccg.suprx`. Keep `disabled` for releases. |
 | **LiveArea > Style** | The `template.xml` layout, with visual previews (see below). |
 | **Application** | Title, Title ID and version written to `PARAM.SFO`. |
 | **Custom Template / Assets** | Optional custom runtime template and 8-bit indexed PNG images: icon 128 × 128, background 840 × 500 and startup button 280 × 158. Empty fields use the bundled Godot Vita images. |
@@ -262,7 +268,7 @@ eboot.bin (loader, C)                      libgodot.so (Godot 4.8-dev7, C++)
 ```
 
 - **Why a shared library:** the engine is built once as a PIC `libgodot.so` with unresolved SDK imports. The loader resolves those imports from its own table (`default_dynlib.c`), applies relocations and jumps into Godot. This avoids linking the whole engine into one huge eboot and lets the same runtime be reused by every game.
-- **Memory:** the package requests the extended application budget (`ATTRIBUTE2=12`, about 365 MiB of user memory), a large newlib heap for Godot, and leaves CDRAM to the GPU. Free memory is logged periodically (`[vita-memory]`).
+- **Memory:** the package requests the extended application budget (`ATTRIBUTE2=12`, about 365 MiB of user memory), a large newlib heap for Godot, and leaves CDRAM to the GPU (textures and the 3D mesh arena). Textures keep no RAM copy after upload. Free memory is logged periodically (`[vita-memory]`).
 - **Clocks:** CPU 444 MHz, bus 222 MHz, GPU 222 MHz.
 - **Stability:** a `WorkerThreadPool` out-of-range crash, decoded from a real Vita coredump, was fixed; projects use two worker threads. A PSP2 coredump analyzer is in `platform/vita/tools/analyze_psp2_core.py`.
 
@@ -294,12 +300,13 @@ Validated on hardware with [Dodge the Creeps](https://github.com/WolffsRoom/Dodg
 
 `rasterizer_scene_gxm_vita.inc` (built into `libgodot_gxm3d.so`, enabled at run time by `gxm3d.cfg`) draws Godot **MeshInstance3D** scenes with GXM, sharing the 2D canvas for UI. It is used by the Overburden port and by the Buckshot Roulette validation.
 
-- Static and skinned meshes (CPU skinning), textured materials with alpha, a mesh arena in GPU memory, depth testing.
+- Static and skinned meshes (CPU skinning), textured materials with alpha, a 24 MiB mesh arena in CDRAM, depth testing.
+- Sprite3D, AnimatedSprite3D and Label3D, with frame, text and tint updates written at draw time; sorted transparency, including surfaces drawn on the CPU fallback path.
 - Per-vertex lighting in a second multiplicative pass, light flares, additive blending, decals without depth writes.
 - Distance and screen-size culling with hysteresis (`gxm_camera_lod.h`), a configurable triangle budget and distance darkening.
 - Tuning through project settings: `rendering/vita/triangle_budget`, `vertex_lighting`, `per_object_lighting`, `light_floor`, `light_flares`, `distance_darkening`, `shadow_rays`, `brightness`.
 
-Not available yet: real-time shadow maps, fog, screen-space effects, custom spatial shaders and post-processing.
+Not available yet: real-time shadow maps, fog, screen-space effects, custom spatial shaders, post-processing and billboard modes for Sprite3D/Label3D.
 
 ---
 
@@ -308,6 +315,7 @@ Not available yet: real-time shadow maps, fog, screen-space effects, custom spat
 
 - **Audio:** Godot's AudioServer mixes as usual; the Vita driver sends PCM16 to SceAudio. The default `audio/vita/output_mode="godot3"` reproduces the layout of the Godot 3 Vita driver that plays without distortion on hardware (BGM port, project mix rate, 512-frame blocks). `main48` keeps the earlier 48 kHz / 2048-frame layout. See [AUDIO_BACKEND.md](platform/vita/AUDIO_BACKEND.md).
 - **Input:** D-pad, both analog sticks, face buttons, shoulders, START/SELECT as Godot joypad 0, plus **front touch screen** events.
+- **Storage I/O:** with CapUnlocker and **PCK Prefetch**, sequential `game.pck` reads are served from a read-ahead buffer filled on the fourth core (`[vita-io]` lines in the log).
 - **Data loading:** the runtime reads `app0:game_data_folder.cfg` and mounts `ux0:data/<folder>/game.pck` with `--main-pack`. The legacy `<folder>/game_data/game.pck` and loose `<folder>/game_data/` layouts remain readable. Every loose file on `ux0:` costs a directory lookup (about 150 ms measured per resource), so one pack loads much faster. All five startup/runtime logs are written to `ux0:data/<folder>/logs/`.
 
 ---
@@ -410,7 +418,7 @@ The clips below were recorded directly from the local Godot project builds. They
 2. Open or create a project. In **Project > Export > Add…** choose **PS Vita** and click **Prepare settings for PS Vita**.
 3. Set the title, a unique 9-character Title ID and the version, choose the LiveArea style and the data folder name.
 4. Click **Export Project** and save the `.vpk`.
-5. On the Vita (HENkaku/Ensō with kubridge installed), install the VPK with VitaShell and copy the generated data folder to `ux0:data/`.
+5. On the Vita (HENkaku/Ensō with kubridge installed), install the VPK with VitaShell and copy the generated data folder to `ux0:data/`. Install [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) to enable the fourth CPU core and the PCK prefetch (optional).
 
 The PS Vita export and trophy panels are currently labelled in Portuguese (for example **Preparar configurações para PS Vita**, **Mostrar prévias dos modelos**, **Troféus PS Vita**). The `Exemplo/` project in the release is a ready-to-export example. Detailed Portuguese guides are included: `LEIA-ME.md`, `TROFEUS.md`, `RGBA4444.md`.
 
@@ -420,7 +428,8 @@ The PS Vita export and trophy panels are currently labelled in Portuguese (for e
 <h2 align="center"><img src="docs/images/headings/light/limitations.png#gh-light-mode-only" alt="Limitations" width="900"><img src="docs/images/headings/dark/limitations.png#gh-dark-mode-only" alt="Limitations" width="900"></h2>
 
 - Canvas 2D is a subset: CanvasItem shaders/materials, CanvasGroup effects, GPU particles and some text modes are not rendered (unsupported materials fall back to unshaded drawing).
-- 3D is experimental (see above); performance and memory must be checked per game.
+- 3D is experimental (see above); performance and memory must be checked per game. Many animated Sprite3D or Label3D nodes whose text changes every frame are expensive on the CPU (24 live Label3D took about 120 ms per frame in the self test).
+- The shader compiler is experimental and off by default; translated CanvasItem shaders do not compile on hardware yet.
 - No C#, GDExtension or remote debugging on the Vita. Scripts are exported as text.
 - The runtime is pinned to **Godot 4.8-dev7**; projects from other 4.x versions usually open after conversion, but the template is not interchangeable with other engine builds.
 - Trophies are packaged but not unlocked at run time yet.
@@ -481,7 +490,7 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 | `platform/vita/editor/addons/psvita/` | Export platform, LiveArea previews, trophy tools (GDScript) |
 | `modules/vita_editor/` | Native editor plugin that registers PS Vita in the desktop editors |
 | `platform/vita/tools/` | Build, packaging, template, validation and coredump tools |
-| `platform/vita/tests/` | ColorRect, canvas, 3D mesh and Dodge the Creeps test projects |
+| `platform/vita/tests/` | Test projects: ColorRect, canvas, 3D mesh, Dodge the Creeps, renderer benchmark, GXM 3D feature test, v0.2/v0.3 showcases and the v0.3 self test |
 
 ---
 
@@ -511,6 +520,8 @@ See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/v
 - [Godot Engine](https://github.com/godotengine/godot) for upstream engine ([README.godot.md](README.godot.md)); loading animation adapted from the official `custom_splash_screen` demo.
 - [VitaSDK](https://vitasdk.org), [VitaGL](https://github.com/Rinnegatamante/vitagl), [libvita2d](https://github.com/xerpi/libvita2d), [kuBridge](https://github.com/TheOfficialFloW/kuBridge), [NoTrpDrm](https://github.com/Rinnegatamante/NoTrpDrm).
 - [SonicMastr/godot-vita](https://github.com/SonicMastr/godot-vita) for Godot 3.x Vita port reference.
+- [vitaShaRK](https://github.com/Rinnegatamante/vitaShaRK) for on-console shader compilation, and [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) for the fourth CPU core.
+- [jeeve-javari](https://github.com/jeeve-javari) for the GXM 3D fixes ported in v0.3.
 - LiveArea layout previews: [PSDevWiki](https://www.psdevwiki.com/vita/) (GFDL 1.2).
 
 _Godot engine code and port additions are provided under the [MIT license](LICENSE.txt); third-party components retain their respective licenses._
