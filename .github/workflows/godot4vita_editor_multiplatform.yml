@@ -81,6 +81,26 @@ jobs:
           cp platform/vita/editor/addons/psvita/trophy_panel.gd _build/support/vita/trophy_panel.gd
           cp platform/vita/editor/addons/psvita/trophy_tools.gd _build/support/vita/trophy_tools.gd
 
+      - name: Check the bundled Vita runtime
+        id: runtime
+        shell: bash
+        # The support ZIP brings vita/templates/vita_release.zip. Only a v0.3
+        # runtime (PCK prefetch) matches the v0.3 export scripts copied above;
+        # an older one still packages, but the artifact is marked not for release.
+        run: |
+          python - <<'PY'
+          import json, os, zipfile
+          with zipfile.ZipFile('_build/support/vita/templates/vita_release.zip') as template:
+              lib = template.read('libgodot.so')
+              manifest = json.loads(template.read('vita-template.json')) if 'vita-template.json' in template.namelist() else {}
+          v03 = b'GODOT_VITA_PCK_PREFETCH' in lib
+          print('template manifest:', json.dumps({k: manifest.get(k) for k in ('backend', 'runtime_shacc', 'texture_formats', 'source_vpk_sha256')}))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('suffix=' + ('' if v03 else '-old-vita-runtime-do-not-release') + '\n')
+          if not v03:
+              print('::warning::The support release bundles a pre-v0.3 Vita runtime; run with support_release set to a release whose Windows ZIP carries the v0.3 template.')
+          PY
+
       - name: Build editor
         shell: bash
         # The scripts default to ../_build outside the checkout; write inside it
@@ -120,7 +140,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Godot4Vita-${{ matrix.host }}-${{ matrix.arch }}
+          name: Godot4Vita-${{ matrix.host }}-${{ matrix.arch }}${{ steps.runtime.outputs.suffix }}
           path: |
             releases/${{ matrix.artifact }}
             releases/${{ matrix.artifact }}.sha256
