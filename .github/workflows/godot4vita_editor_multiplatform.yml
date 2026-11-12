@@ -76,10 +76,27 @@ jobs:
           shutil.copytree(roots[0], '_build/support', dirs_exist_ok=True)
           PY
           test -f _build/support/vita/templates/vita_release.zip
-          cp platform/vita/editor/addons/psvita/platform.gd _build/support/vita/platform.gd
-          cp platform/vita/editor/addons/psvita/defaults_inspector.gd _build/support/vita/defaults_inspector.gd
-          cp platform/vita/editor/addons/psvita/trophy_panel.gd _build/support/vita/trophy_panel.gd
-          cp platform/vita/editor/addons/psvita/trophy_tools.gd _build/support/vita/trophy_tools.gd
+          # Same portable rewrite as package_windows_editor.py: the addon
+          # scripts use res://addons/psvita paths, the integrated editor
+          # resolves its support files beside the executable.
+          python - <<'PY'
+          import pathlib, re
+          source = pathlib.Path('platform/vita/editor/addons/psvita')
+          target = pathlib.Path('_build/support/vita')
+          for name in ('platform.gd', 'defaults_inspector.gd', 'trophy_tools.gd', 'trophy_panel.gd'):
+              text = (source / name).read_text(encoding='utf-8')
+              text = text.replace('const TEMPLATE =', 'static var TEMPLATE =')
+              text = text.replace('const DEFAULT_DIR =', 'static var DEFAULT_DIR =')
+              text = re.sub(r'"res://addons/psvita/([^"\n]*)"',
+                            lambda m: 'OS.get_executable_path().get_base_dir().path_join("vita/' + m[1] + '")', text)
+              if name == 'defaults_inspector.gd':
+                  text = text.replace('Preenche Release, Icon, Background e Startup com o template e as imagens padrão incluídas.',
+                                      'Restaura os padrões incluídos no editor. Campos vazios usam esses arquivos automaticamente.')
+                  text = text.replace('preset.set("custom_template/release", VitaPlatform.TEMPLATE)', 'preset.set("custom_template/release", "")')
+                  text = text.replace('preset.set(key, VitaPlatform.default_asset_path(key))', 'preset.set(key, "")')
+              assert 'res://addons/psvita' not in text, name
+              (target / name).write_text(text, encoding='utf-8')
+          PY
 
       - name: Check the bundled Vita runtime
         id: runtime
