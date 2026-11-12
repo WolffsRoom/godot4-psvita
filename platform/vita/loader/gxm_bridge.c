@@ -499,7 +499,11 @@ int vita_gxm_triangles3d(void *texture, const float *xyz, const float *uv, unsig
 void *vita_gxm_mesh_create(const float *xyz, const float *uv, unsigned count) {
     if (!initialized || !scene3d_enabled || !xyz || !count || count % 3 || mesh_arena_failed) return NULL;
     if (!mesh_arena) {
-        mesh_arena = gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, MESH_ARENA_BYTES, 16,
+        /* CDRAM first: the arena only feeds the GPU and the CPU only writes
+         * it, and a 24 MB USER block left 2 MB of user memory on device
+         * (v0.3 self test, 2026-11-12). gpu_alloc falls back to other
+         * memory types when CDRAM is short. */
+        mesh_arena = gpu_alloc(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, MESH_ARENA_BYTES, 16,
                 SCE_GXM_MEMORY_ATTRIB_READ, &mesh_arena_uid);
         if (!mesh_arena) {
             /* Keep the CPU path working when USER memory is short. */

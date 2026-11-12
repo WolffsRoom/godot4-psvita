@@ -824,7 +824,7 @@ public:
                         draw_primitive(item, static_cast<Item::CommandPrimitive *>(command), xf, modulate, default_filter);
                         break;
                     default:
-                        WARN_PRINT_ONCE("GXM: mesh, multimesh and particle canvas commands are not implemented.");
+                        WARN_PRINT_ONCE(vformat("GXM: canvas command type %d is not implemented (mesh, multimesh, particles, transform, clip ignore or animation slice).", int(command->type)));
                         break;
                 }
             }

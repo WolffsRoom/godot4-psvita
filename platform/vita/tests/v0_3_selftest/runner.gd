@@ -65,6 +65,10 @@ func _log(line: String) -> void:
 	log_lines.append(line)
 
 func _log_memory(label: String) -> void:
+	# The Performance memory monitors read 0 on Vita; there the runtime's own
+	# "[vita-memory]" lines in godot_stderr.log are the memory record.
+	if OS.get_name() == "Vita":
+		return
 	_log("[selftest] memory at=%s static=%d video=%d texture=%d" % [label,
 			int(Performance.get_monitor(Performance.MEMORY_STATIC)),
 			int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED)),
