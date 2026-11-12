@@ -113,7 +113,7 @@ The 3D renderer is still experimental. Compatibility and performance must be val
 ---
 
 <a id="desktop-editors-with-ps-vita-export"></a>
-<h2 align="center"><img src="docs/images/headings/light/windows-editor-with-ps-vita-export.png#gh-light-mode-only" alt="Desktop editors with PS Vita export" width="900"><img src="docs/images/headings/dark/windows-editor-with-ps-vita-export.png#gh-dark-mode-only" alt="Desktop editors with PS Vita export" width="900"></h2>
+<h2 align="center"><img src="docs/images/headings/light/desktop-editors-with-ps-vita-export.png#gh-light-mode-only" alt="Desktop editors with PS Vita export" width="900"><img src="docs/images/headings/dark/desktop-editors-with-ps-vita-export.png#gh-dark-mode-only" alt="Desktop editors with PS Vita export" width="900"></h2>
 
 Starting with v0.3, the distribution set includes portable editors for Windows x64 (**`Godot4Vita.exe`**), Linux x86_64 (**`Godot4Vita`**) and universal macOS (**`Godot4Vita.app`**, Intel + Apple Silicon). PS Vita appears in **Project > Export > Add…** for every project, without installing an addon, Python, WSL or VitaSDK.
 
