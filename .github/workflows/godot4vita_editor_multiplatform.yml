@@ -11,7 +11,7 @@ on:
       support_release:
         description: Release tag containing the Windows editor ZIP used as the portable Vita support payload
         required: true
-        default: v0.2
+        default: v0.3
 
 permissions:
   contents: read
@@ -59,7 +59,7 @@ jobs:
       - name: Download portable Vita support payload
         env:
           GH_TOKEN: ${{ github.token }}
-          SUPPORT_TAG: ${{ inputs.support_release || 'v0.2' }}
+          SUPPORT_TAG: ${{ inputs.support_release || 'v0.3' }}
         shell: bash
         run: |
           mkdir -p _build/support-download _build/support
