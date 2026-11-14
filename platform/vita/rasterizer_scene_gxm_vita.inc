@@ -262,6 +262,23 @@ public:
         FlatSurface *value = surfaces ? surfaces->getptr(surface) : nullptr;
         if (!value || !value->gpu) return false;
         if (!value->gpu_dirty) return true;
+        // Plain positions + UVs + indices (a surface some code rewrites every
+        // frame): gather straight from the surface buffers.
+        {
+            const RenderingServerTypes::SurfaceData &sd = get_mesh(rid)->surfaces[surface];
+            const uint64_t extra = RSE::ARRAY_FORMAT_NORMAL | RSE::ARRAY_FORMAT_TANGENT | RSE::ARRAY_FORMAT_COLOR | RSE::ARRAY_FORMAT_BONES |
+                    RSE::ARRAY_FORMAT_WEIGHTS | RSE::ARRAY_FLAG_USE_2D_VERTICES | RSE::ARRAY_FLAG_COMPRESS_ATTRIBUTES;
+            if (!(sd.format & extra) && sd.primitive == RSE::PRIMITIVE_TRIANGLES && sd.index_count == value->count && sd.vertex_count &&
+                    sd.vertex_data.size() == int(sd.vertex_count) * 12 &&
+                    (sd.index_data.size() == int(sd.index_count) * 2 || sd.index_data.size() == int(sd.index_count) * 4) &&
+                    vita_gxm_mesh_update_indexed(value->gpu, (const float *)sd.vertex_data.ptr(), sd.vertex_count, sd.index_data.ptr(),
+                            sd.index_data.size() / int(sd.index_count), sd.index_count)) {
+                value->positions.clear();
+                value->normals.clear();
+                value->gpu_dirty = false;
+                return true;
+            }
+        }
         Array arrays = RenderingServer::get_singleton()->mesh_create_arrays_from_surface_data(mesh_get_surface(rid, surface));
         if (arrays.is_empty()) return false;
         PackedVector3Array positions = arrays[RSE::ARRAY_VERTEX];
@@ -642,6 +659,7 @@ class GXMScene : public RasterizerSceneDummy {
         uint32_t color = 0;
         unsigned count = 0;
         float depth = 0.0f;
+        bool linear = false;
         struct Sort {
             _FORCE_INLINE_ bool operator()(const TransparentDraw &a, const TransparentDraw &b) const { return a.depth > b.depth; }
         };
@@ -931,6 +949,10 @@ class GXMScene : public RasterizerSceneDummy {
         float pulse_speed = 3.0f;
         bool emissive = false;
         Color glow;
+        // The albedo sampler asks for plain linear filtering (no mipmaps), a
+        // deliberate choice: StandardMaterial3D defaults to linear + mipmaps.
+        bool linear = false;
+        bool unshaded = false; // render_mode unshaded: no scene light on it.
     };
     HashMap<RID, MaterialInfo> material_cache;
     const MaterialInfo &material_info(RID material) {
@@ -962,6 +984,16 @@ class GXMScene : public RasterizerSceneDummy {
             if (emission_energy.get_type() == Variant::FLOAT || emission_energy.get_type() == Variant::INT) energy = float(emission_energy);
             value.emissive = true;
             value.glow = Color(emission) * MIN(energy, 4.0f) * 0.35f;
+        }
+        {
+            const String code = materials->shader_get_code(materials->shader_for_material(material));
+            int mode = code.find("render_mode");
+            if (mode >= 0) value.unshaded = code.substr(mode, MAX(code.find_char(';', mode) - mode, 0)).contains("unshaded");
+            int at = code.find("uniform sampler2D texture_albedo");
+            if (at >= 0) {
+                const String declaration = code.substr(at, MAX(code.find_char(';', at) - at, 0));
+                value.linear = declaration.contains("filter_linear") && !declaration.contains("filter_linear_mipmap");
+            }
         }
         if (material_cache.size() > 4096) material_cache.clear();
         return material_cache.insert(material, value)->value;
@@ -1233,7 +1265,7 @@ public:
                 // carries the distance fade. Far, skinned or transparent
                 // surfaces keep the cheaper per-object tint.
                 float apparent_radius = draw_candidates[i].radius / MAX(draw_candidates[i].center_distance, 0.25f);
-                bool vertex_lit = vertex_lighting && !bones && color.a > 0.99f &&
+                bool vertex_lit = vertex_lighting && !bones && color.a > 0.99f && !material_props.unshaded &&
                         draw_candidates[i].center_distance <= vertex_light_distance && apparent_radius >= vertex_light_min_radius &&
                         !(tex.get_type() == Variant::RID && textures->texture_has_alpha(tex));
                 const GXMMeshStorage::FlatSurface *flat = nullptr;
@@ -1270,6 +1302,7 @@ public:
                 float tint_r = lit_ready ? instance_fade : light_color.r;
                 float tint_g = lit_ready ? instance_fade : light_color.g;
                 float tint_b = lit_ready ? instance_fade : light_color.b;
+                if (material_props.unshaded) tint_r = tint_g = tint_b = 1.0f;
                 color.r *= tint_r;
                 color.g *= tint_g;
                 color.b *= tint_b;
@@ -1314,6 +1347,7 @@ public:
                     deferred.color = gxm_color(color);
                     deferred.count = flat->gpu ? flat->count : unsigned(flat->xyz.size() / 9) * 3;
                     deferred.depth = (instance->world_bounds.get_center() - eye).dot(view_forward);
+                    deferred.linear = material_props.linear;
                     transparent_draws.push_back(deferred);
                     attempted += deferred.count / 3;
                     continue;
@@ -1426,10 +1460,12 @@ public:
             for (uint32_t i = 0; i < transparent_draws.size(); i++) {
                 const TransparentDraw &d = transparent_draws[i];
                 if (d.mesh) {
+                    vita_gxm_mesh_filter(d.linear);
                     if (vita_gxm_mesh_draw(d.mesh, d.texture, d.matrix, d.color)) {
                         triangles += d.count / 3;
                         transparent_drawn++;
                     }
+                    vita_gxm_mesh_filter(0);
                 } else if (d.count && d.xyz.size() >= int(d.count) * 3 && d.uv.size() >= int(d.count) * 2) {
                     for (unsigned offset = 0; offset < d.count; offset += 3072) {
                         unsigned batch = MIN(3072u, d.count - offset);

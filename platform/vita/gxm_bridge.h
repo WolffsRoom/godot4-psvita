@@ -12,6 +12,12 @@ void vita_gxm_scene3d_end(void);
 void *vita_gxm_mesh_create(const float *xyz, const float *uv, unsigned count);
 int vita_gxm_mesh_draw(void *mesh, void *texture, const float *mvp, uint32_t color);
 int vita_gxm_mesh_update(void *mesh, const float *xyz, const float *uv, unsigned count); // In-place rewrite
+// In-place rewrite of the positions only, gathered through the surface's own
+// index buffer (index_bytes 2 or 4). UVs stay as created. Returns 0 when the
+// backend cannot do it and the caller must use vita_gxm_mesh_update.
+int vita_gxm_mesh_update_indexed(void *mesh, const float *xyz, unsigned vertex_count, const void *indices, int index_bytes, unsigned count);
+// Texture filter of the following vita_gxm_mesh_draw calls (default point).
+void vita_gxm_mesh_filter(int linear);
 void vita_gxm_mesh_reset(void);
 unsigned vita_gxm_mesh_arena_used(void);
 unsigned vita_gxm_last_gpu_wait_us(void);
@@ -45,6 +51,10 @@ void vita_gxm_blend_add(int enabled);
 void vita_gxm_quad(const float *xy, uint32_t color);
 void *vita_gxm_texture_create(int width, int height, const uint8_t *rgba);
 void vita_gxm_texture_free(void *texture);
+/* Rewrites the pixels of a texture of the same size in place (textures that
+ * change every frame). Returns 0 when the backend cannot and the caller must
+ * free and create it again. */
+int vita_gxm_texture_update(void *texture, const uint8_t *rgba, int width, int height);
 /* CPU readback of a texture made by vita_gxm_texture_create, as RGBA8.
  * When supported, the renderer drops its RGBA8 copy after upload and reads
  * the pixels back only if something asks for the image. RGBA4444 textures

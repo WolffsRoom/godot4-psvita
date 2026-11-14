@@ -426,6 +426,12 @@ int vita_gxm_texture_read(void *texture, uint8_t *rgba, int width, int height) {
     (void)texture; (void)rgba; (void)width; (void)height;
     return 0;
 }
+/* Not implemented on this backend: the caller recreates the texture. */
+int vita_gxm_texture_update(void *texture, const uint8_t *rgba, int width, int height) {
+    (void)texture; (void)rgba; (void)width; (void)height;
+    return 0;
+}
+
 void vita_gxm_texture_free(void *texture) {
     VGLTexture *t = texture;
     if (!t) return;
@@ -774,6 +780,17 @@ int vita_gxm_mesh_update(void *handle, const float *xyz, const float *uv, unsign
     if (!mesh || !xyz || count != mesh->count) return 0;
     upload_textured(mesh, xyz, uv);
     return 1;
+}
+
+/* No in-place gather on this backend: the caller falls back to
+ * vita_gxm_mesh_update. */
+int vita_gxm_mesh_update_indexed(void *handle, const float *xyz, unsigned vertex_count, const void *indices, int index_bytes, unsigned count) {
+    (void)handle; (void)xyz; (void)vertex_count; (void)indices; (void)index_bytes; (void)count;
+    return 0;
+}
+
+void vita_gxm_mesh_filter(int linear) {
+    (void)linear;
 }
 
 void vita_gxm_mesh_reset(void) {

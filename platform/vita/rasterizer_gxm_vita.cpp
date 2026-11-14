@@ -100,6 +100,19 @@ public:
     }
     void texture_2d_update(RID rid, const Ref<Image> &image, int layer = 0) override {
         ERR_FAIL_COND(layer != 0);
+        // Same size, plain RGBA8 (textures a game rewrites every frame):
+        // overwrite the GPU copy instead of freeing and mapping a new block.
+        Texture *t = textures.getptr(rid);
+        if (t && t->gpu && t->image.is_null() && image.is_valid() && image->get_format() == Image::FORMAT_RGBA8 && !image->has_mipmaps() &&
+                t->image_size == Size2i(image->get_width(), image->get_height()) &&
+                vita_gxm_texture_update(t->gpu, image->get_data().ptr(), t->image_size.x, t->image_size.y)) {
+            if (!t->has_alpha) {
+                const uint8_t *pixels = image->get_data().ptr();
+                const int count = t->image_size.x * t->image_size.y;
+                for (int i = 0; i < count && !t->has_alpha; i++) t->has_alpha = pixels[i * 4 + 3] != 255;
+            }
+            return;
+        }
         texture_2d_initialize(rid, image);
     }
     Ref<Image> texture_2d_get(RID rid) const override {

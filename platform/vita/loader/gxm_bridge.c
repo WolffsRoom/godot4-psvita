@@ -173,6 +173,25 @@ void *vita_gxm_texture_create(int width, int height, const uint8_t *rgba) {
     }
     return t;
 }
+/* Same storage, new pixels: no CDRAM block is freed and mapped again. A frame
+ * still on the GPU may sample a mix of both versions, which is harmless for
+ * the textures that use this (per-frame simulation output). */
+int vita_gxm_texture_update(void *texture, const uint8_t *rgba, int width, int height) {
+    GXMTexture *t = texture;
+    if (!t || !t->texture || !rgba || width != t->width || height != t->height) return 0;
+    uint8_t *data = vita2d_texture_get_datap(t->texture);
+    unsigned stride = vita2d_texture_get_stride(t->texture);
+    for (int y = 0; y < height; y++) {
+        const uint8_t *source = rgba + (size_t)y * width * 4;
+        if (t->rgba4444) {
+            uint16_t *destination = (uint16_t *)(data + (size_t)y * stride);
+            for (int x = 0; x < width; x++) destination[x] = vita_pack_rgba4444(source + x * 4);
+        } else {
+            memcpy(data + (size_t)y * stride, source, (size_t)width * 4);
+        }
+    }
+    return 1;
+}
 int vita_gxm_texture_readback_supported(void) {
     return 1;
 }
@@ -528,6 +547,7 @@ void *vita_gxm_mesh_create(const float *xyz, const float *uv, unsigned count) {
     mesh_arena_used += header + bytes;
     return mesh;
 }
+static int mesh_linear;
 int vita_gxm_mesh_draw(void *handle, void *texture, const float *mvp, uint32_t color) {
     GXMMesh *mesh = handle;
     if (!drawing || !scene3d_enabled || !mesh || !mvp) return 0;
@@ -540,7 +560,8 @@ int vita_gxm_mesh_draw(void *handle, void *texture, const float *mvp, uint32_t c
     flush_batch();
     begin_scene3d();
     memcpy(_vita2d_ortho_matrix, mvp, sizeof(canvas_matrix));
-    vita2d_texture_set_filters(t, SCE_GXM_TEXTURE_FILTER_POINT, SCE_GXM_TEXTURE_FILTER_POINT);
+    vita2d_texture_set_filters(t, mesh_linear ? SCE_GXM_TEXTURE_FILTER_LINEAR : SCE_GXM_TEXTURE_FILTER_POINT,
+            mesh_linear ? SCE_GXM_TEXTURE_FILTER_LINEAR : SCE_GXM_TEXTURE_FILTER_POINT);
     /* vita2d's linear index buffer holds 65535 entries. */
     for (unsigned offset = 0; offset < mesh->count; offset += 65532u) {
         unsigned batch = mesh->count - offset < 65532u ? mesh->count - offset : 65532u;
@@ -560,6 +581,36 @@ int vita_gxm_mesh_update(void *handle, const float *xyz, const float *uv, unsign
         v->u = uv ? uv[i * 2] : 0.0f; v->v = uv ? uv[i * 2 + 1] : 0.0f;
     }
     return 1;
+}
+/* Positions only, gathered through the surface's index buffer: a mesh that
+ * moves every frame (CPU-simulated surfaces) skips the decode and the
+ * flattened copy, and the write-combined slot is written once, in order. */
+int vita_gxm_mesh_update_indexed(void *handle, const float *xyz, unsigned vertex_count, const void *indices, int index_bytes, unsigned count) {
+    GXMMesh *mesh = handle;
+    if (!mesh || !xyz || !indices || count != mesh->count || (count % 3u) != 0) return 0;
+    if (index_bytes == 2) {
+        const uint16_t *index = indices;
+        for (unsigned i = 0; i < count; i++) if (index[i] >= vertex_count) return 0;
+        for (unsigned i = 0; i < count; i++) {
+            const float *p = xyz + (unsigned)index[i] * 3u;
+            vita2d_texture_vertex *v = &mesh->vertices[i];
+            v->x = p[0]; v->y = p[1]; v->z = p[2];
+        }
+    } else if (index_bytes == 4) {
+        const uint32_t *index = indices;
+        for (unsigned i = 0; i < count; i++) if (index[i] >= vertex_count) return 0;
+        for (unsigned i = 0; i < count; i++) {
+            const float *p = xyz + index[i] * 3u;
+            vita2d_texture_vertex *v = &mesh->vertices[i];
+            v->x = p[0]; v->y = p[1]; v->z = p[2];
+        }
+    } else {
+        return 0;
+    }
+    return 1;
+}
+void vita_gxm_mesh_filter(int linear) {
+    mesh_linear = linear ? 1 : 0;
 }
 void vita_gxm_mesh_reset(void) {
     mesh_arena_used = 0;
