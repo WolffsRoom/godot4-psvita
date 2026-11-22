@@ -1,5 +1,5 @@
 def can_build(env, platform):
-    return env.editor_build and platform == "windows"
+    return env.editor_build and platform in ["linuxbsd", "windows"]
 
 
 def configure(env):
