@@ -21,7 +21,7 @@ by the desktop editor build.
 From the engine checkout:
 
 ```sh
-platform/vita/tools/build_linux_editor.sh
+bash platform/vita/tools/build_linux_editor.sh
 python3 platform/vita/tools/package_linux_editor.py \
   --template /absolute/path/to/vita_release.zip
 python3 platform/vita/tools/archive_linux_editor.py
