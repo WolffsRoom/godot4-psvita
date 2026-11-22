@@ -6,6 +6,10 @@ defaults and preview assets are located in `vita/` beside the executable.
 Project-local addon installation is not required. Existing updated addons detect
 the native plugin and avoid registering a second platform.
 
+The same module and support scripts are available in the native Linux x86-64
+editor. See [INTEGRATED_LINUX.md](INTEGRATED_LINUX.md) for its build and
+packaging workflow.
+
 The native platform defaults new presets to text scripts. The inspector offers
 Vita-specific project overrides and portable defaults resolved beside the exe.
 It does not silently change existing presets or project settings on startup.
@@ -47,4 +51,3 @@ Ao reexportar, a pasta anterior gerada para o mesmo Title ID é preservada com s
 The native plugin registers trophy_panel.gd in the editor bottom panel. trophy_tools.gd handles the project configuration, Steam schema mapping, indexed PNG encoding, SFM and TRP v2 generation. The export platform builds the enabled package directly into sce_sys/trophy/<communication_id>/TROPHY.TRP in both export modes. See TROFEUS.md for the UI flow and the pending native unlock bridge.
 
 Validation: editor/test_trophies.gd, editor/test_trophy_native.gd, tools/test_trophy_export.py and tools/tests/test_trophy_trp.py. Network import success requires a real user API key; the automated import tests use a representative Steam schema fixture.
-
