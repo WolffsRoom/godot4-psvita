@@ -30,7 +30,7 @@ func _get_logo() -> Texture2D:
 	return logo
 
 func _get_platform_features() -> PackedStringArray:
-	return PackedStringArray(["Vita", "mobile", "arm32"])
+	return PackedStringArray(["vita", "mobile", "arm32"])
 
 func _get_preset_features(_preset: EditorExportPreset) -> PackedStringArray:
 	# Uncompressed/lossless imports: this renderer uploads CPU RGBA images.
@@ -44,7 +44,7 @@ func _get_export_options() -> Array[Dictionary]:
 		{"name": "data/separate_folder", "type": TYPE_BOOL, "default_value": true},
 		{"name": "data/package_format", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "PCK,Game Data (arquivos soltos)", "default_value": "PCK"},
 		{"name": "data/folder_name", "type": TYPE_STRING, "default_value": "godotvitagame"},
-		{"name": "performance/capunlocker", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "Desativado:disabled,Opcional:optional,Obrigatório:required", "default_value": "optional"},
+		{"name": "performance/capunlocker", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "disabled,optional,required", "default_value": "optional"},
 		{"name": "textures/gpu_format", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "RGBA4444,RGBA8888", "default_value": "RGBA4444"},
 		{"name": "livearea/style", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": ",".join(LIVEAREA_STYLES), "default_value": "a5"},
 		{"name": "application/title", "type": TYPE_STRING, "default_value": "Godot Vita Game"},
@@ -141,7 +141,7 @@ func _has_valid_export_configuration(preset: EditorExportPreset, debug: bool) ->
 
 func _has_valid_project_configuration(preset: EditorExportPreset) -> bool:
 	var error := ""
-	if ProjectSettings.get_setting("application/run/main_scene", "") == "":
+	if preset.get_project_setting("application/run/main_scene") == "":
 		error = "Set a main scene before exporting."
 	elif preset.get_project_setting("rendering/renderer/rendering_method") != "gl_compatibility":
 		error = "Select the Compatibility renderer for this Vita runtime."
