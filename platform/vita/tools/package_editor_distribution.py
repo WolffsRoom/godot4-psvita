@@ -92,6 +92,10 @@ def package_distribution(platform: str, arch: str, payload: Path, support: Path,
             executable_name = "Godot4Vita.exe" if platform == "windows" else "Godot4Vita"
             shutil.copy2(payload, root / executable_name)
             copy_support(support, root)
+            if platform == "windows":
+                # Self-contained mode, as in package_windows_editor.py: editor
+                # settings stay next to the exe instead of %APPDATA%.
+                (root / "_sc_").touch()
         archive_tree(staging, destination)
 
 

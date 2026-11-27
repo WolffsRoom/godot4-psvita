@@ -57,6 +57,21 @@ class EditorDistributionTest(unittest.TestCase):
                 self.assertIn(prefix + "vita/templates/vita_release.zip", names)
                 self.assertIn(prefix + "LEIA-ME.md", names)
 
+    def test_windows_archive_is_self_contained(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload, support = self.make_fixture(root)
+            binary = payload / "Godot4Vita.exe"
+            binary.write_bytes(b"windows-editor")
+            destination = root / "release.zip"
+            MODULE.package_distribution("windows", "x64", binary, support, destination)
+            with zipfile.ZipFile(destination) as archive:
+                names = set(archive.namelist())
+                prefix = "Godot4Vita-v0.4-Windows-x64/"
+                self.assertIn(prefix + "Godot4Vita.exe", names)
+                self.assertIn(prefix + "_sc_", names)
+                self.assertIn(prefix + "vita/templates/vita_release.zip", names)
+
     def test_macos_archive_places_support_inside_app_macos_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
