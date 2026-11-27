@@ -30,7 +30,9 @@ func _get_logo() -> Texture2D:
 	return logo
 
 func _get_platform_features() -> PackedStringArray:
-	return PackedStringArray(["Vita", "mobile", "arm32"])
+	# Feature tags are lowercase: ProjectSettings lowercases override tags in the
+	# editor and the Vita runtime reports "vita" (OS_Vita::_check_internal_feature_support).
+	return PackedStringArray(["vita", "mobile", "arm32"])
 
 func _get_preset_features(_preset: EditorExportPreset) -> PackedStringArray:
 	# Uncompressed/lossless imports: this renderer uploads CPU RGBA images.
@@ -44,10 +46,10 @@ func _get_export_options() -> Array[Dictionary]:
 		{"name": "data/separate_folder", "type": TYPE_BOOL, "default_value": true},
 		{"name": "data/package_format", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "PCK,Game Data (arquivos soltos)", "default_value": "PCK"},
 		{"name": "data/folder_name", "type": TYPE_STRING, "default_value": "godotvitagame"},
-		{"name": "performance/capunlocker", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "Desativado:disabled,Opcional:optional,Obrigatório:required", "default_value": "optional"},
+		{"name": "performance/capunlocker", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "disabled,optional,required", "default_value": "optional"},
 		{"name": "performance/pck_prefetch", "type": TYPE_BOOL, "default_value": true},
 		{"name": "textures/gpu_format", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "RGBA4444,RGBA8888", "default_value": "RGBA4444"},
-		{"name": "rendering/shader_compiler", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "Desativado:disabled,Seguro (experimental):safe,Avançado (risco de crash):experimental", "default_value": "disabled"},
+		{"name": "rendering/shader_compiler", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": "disabled,safe,experimental", "default_value": "disabled"},
 		{"name": "livearea/style", "type": TYPE_STRING, "hint": PROPERTY_HINT_ENUM, "hint_string": ",".join(LIVEAREA_STYLES), "default_value": "a5"},
 		{"name": "application/title", "type": TYPE_STRING, "default_value": "Godot Vita Game"},
 		{"name": "application/title_id", "type": TYPE_STRING, "default_value": "GDOT40001"},
@@ -90,6 +92,12 @@ static func valid_data_folder(folder: String) -> bool:
 	return folder.to_upper() not in ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"]
 
 func _configuration_error(preset: EditorExportPreset, _debug: bool) -> String:
+	# Rewrite legacy "Label:value" selections once, so the dropdown shows a
+	# listed item again and export_presets.cfg stores the plain value.
+	for option in ["performance/capunlocker", "rendering/shader_compiler"]:
+		var stored := str(preset.get(option))
+		if stored.contains(":"):
+			preset.set(option, enum_option(preset, option))
 	var trophies := TrophyTools.read_config()
 	if trophies.get("enabled", false):
 		var trophy_error := TrophyTools.validate(trophies)
@@ -101,9 +109,9 @@ func _configuration_error(preset: EditorExportPreset, _debug: bool) -> String:
 		return "Selecione PCK ou Game Data (arquivos soltos)."
 	if str(preset.get("textures/gpu_format")) not in ["RGBA4444", "RGBA8888"]:
 		return "Selecione RGBA4444 ou RGBA8888 para as texturas da GPU."
-	if str(preset.get("rendering/shader_compiler")) not in ["disabled", "safe", "experimental"]:
+	if enum_option(preset, "rendering/shader_compiler") not in ["disabled", "safe", "experimental"]:
 		return "Modo inválido do compilador de shaders GXM."
-	if str(preset.get("performance/capunlocker")) not in ["disabled", "optional", "required"]:
+	if enum_option(preset, "performance/capunlocker") not in ["disabled", "optional", "required"]:
 		return "Selecione um modo válido para o CapUnlocker."
 	if str(preset.get("livearea/style")) not in LIVEAREA_STYLES:
 		return "Selecione um modelo LiveArea válido."
@@ -145,7 +153,7 @@ func _has_valid_export_configuration(preset: EditorExportPreset, debug: bool) ->
 
 func _has_valid_project_configuration(preset: EditorExportPreset) -> bool:
 	var error := ""
-	if ProjectSettings.get_setting("application/run/main_scene", "") == "":
+	if str(preset.get_project_setting("application/run/main_scene")) == "":
 		error = "Set a main scene before exporting."
 	elif preset.get_project_setting("rendering/renderer/rendering_method") != "gl_compatibility":
 		error = "Select the Compatibility renderer for this Vita runtime."
@@ -170,11 +178,11 @@ func _get_export_option_warning(_preset: EditorExportPreset, option: StringName)
 	if option == &"performance/pck_prefetch":
 		return "v0.3 experimental: antecipa leituras sequenciais do PCK no quarto núcleo quando o CapUnlocker está disponível."
 	if option == &"rendering/shader_compiler":
-		return "Opcional: usa vitaShaRK e o libshacccg.suprx do usuário em ur0:data/. 'Seguro' permite apenas shaders simples; 'Avançado' pode causar travamentos. Nunca acompanha o VPK."
+		return "Opcional: usa vitaShaRK e o libshacccg.suprx do usuário em ur0:data/. disabled = desativado; safe = apenas shaders simples (experimental); experimental = avançado, pode causar travamentos. Nunca acompanha o VPK."
 	if option == &"textures/gpu_format" and _preset.get(option) == "RGBA4444":
 		return "16 bits por pixel na GPU; reduz precisão de cores e alpha. Cópias em RAM não mudam. Economia depende do alinhamento das alocações."
 	if option == &"performance/capunlocker":
-		return "Opcional continua sem o plugin. Obrigatório interrompe a abertura e solicita a instalação. Quando detectado, o áudio usa o quarto núcleo."
+		return "disabled = desativado; optional = continua sem o plugin; required = interrompe a abertura e solicita a instalação. Quando detectado, o áudio usa o quarto núcleo."
 	if option == &"livearea/style" and str(_preset.get(option)) not in ["a1", "a2", "a3", "a4", "a5"]:
 		return "Modelo especial do sistema/emulador: compatibilidade com aplicativos homebrew ainda não validada."
 	if option == &"application/title":
@@ -184,6 +192,14 @@ func _get_export_option_warning(_preset: EditorExportPreset, option: StringName)
 func _fail(message: String, error: int = ERR_INVALID_DATA) -> int:
 	add_message(EXPORT_MESSAGE_ERROR, "PS Vita", message)
 	return error
+
+# String enum options store the selected item literally. Up to v0.3 the
+# CapUnlocker and shader compiler lists used "Label:value" items, so presets
+# saved by those editors may hold "Desativado:disabled"; keep only the value.
+static func enum_option(preset: EditorExportPreset, option: String) -> String:
+	var value := str(preset.get(option)).strip_edges()
+	var separator := value.rfind(":")
+	return value.substr(separator + 1) if separator != -1 else value
 
 static func _safe_path(path: String) -> bool:
 	return not path.is_empty() and not path.begins_with("/") and not path.contains(":") and not path.contains("\\") and not ".." in path.split("/")
@@ -298,7 +314,7 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 	if preset.get("textures/gpu_format") not in manifest.get("texture_formats", ["RGBA8888"]):
 		template.close()
 		return _fail("Este template não suporta o formato selecionado. Atualize o template ou selecione RGBA8888.")
-	if str(preset.get("rendering/shader_compiler")) != "disabled" and manifest.get("runtime_shacc", "") != "v1":
+	if enum_option(preset, "rendering/shader_compiler") != "disabled" and manifest.get("runtime_shacc", "") != "v1":
 		template.close()
 		return _fail("O compilador de shaders GXM exige um template v0.3 com integração vitaShaRK. Atualize o template ou desative Rendering / Shader Compiler.")
 	for binary in ["eboot.bin", "libgodot.so"]:
@@ -344,9 +360,9 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 		if error == OK:
 			error = _put(zip, "gxm_texture_format.cfg", (str(preset.get("textures/gpu_format")) + "\n").to_utf8_buffer())
 		if error == OK:
-			error = _put(zip, "capunlocker.cfg", (str(preset.get("performance/capunlocker")) + "\n").to_utf8_buffer())
+			error = _put(zip, "capunlocker.cfg", (enum_option(preset, "performance/capunlocker") + "\n").to_utf8_buffer())
 		if error == OK:
-			error = _put(zip, "shacc.cfg", (str(preset.get("rendering/shader_compiler")) + "\n").to_utf8_buffer())
+			error = _put(zip, "shacc.cfg", (enum_option(preset, "rendering/shader_compiler") + "\n").to_utf8_buffer())
 		if error == OK:
 			error = _put(zip, "pck_prefetch.cfg", (("enabled" if preset.get("performance/pck_prefetch") else "disabled") + "\n").to_utf8_buffer())
 		if error == OK:

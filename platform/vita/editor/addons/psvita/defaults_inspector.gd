@@ -12,14 +12,19 @@ func _parse_begin(object: Object) -> void:
 	prepare.text = "Preparar configurações para PS Vita"
 	prepare.tooltip_text = "Configura Compatibility, 960 × 544 e dois workers apenas para a exportação Vita."
 	prepare.pressed.connect(func():
+		# Feature tags are lowercase ("vita"); older builds wrote ".Vita",
+		# which the editor validator and the runtime did not match.
 		var settings := {
-			"rendering/renderer/rendering_method.Vita": "gl_compatibility",
-			"rendering/renderer/rendering_method.mobile.Vita": "gl_compatibility",
-			"display/window/size/viewport_width.Vita": 960,
-			"display/window/size/viewport_height.Vita": 544,
-			"threading/worker_pool/max_threads.Vita": 2,
+			"rendering/renderer/rendering_method.vita": "gl_compatibility",
+			"rendering/renderer/rendering_method.mobile.vita": "gl_compatibility",
+			"display/window/size/viewport_width.vita": 960,
+			"display/window/size/viewport_height.vita": 544,
+			"threading/worker_pool/max_threads.vita": 2,
 		}
 		for key in settings:
+			var legacy: String = key.trim_suffix(".vita") + ".Vita"
+			if ProjectSettings.has_setting(legacy):
+				ProjectSettings.set_setting(legacy, null)
 			ProjectSettings.set_setting(key, settings[key])
 		if ProjectSettings.save() != OK:
 			push_error("Não foi possível salvar as configurações Vita.")

@@ -22,7 +22,10 @@ oficial; a adaptação Vita está no complemento e no template do runtime.
 2. Ative **PS Vita Export** em **Projeto > Configurações do Projeto > Plugins**.
 3. Configure Compatibility, viewport 960 x 544 e
    `threading/worker_pool/max_threads=2`. Também é possível usar substituições
-   dessas configurações para a feature `Vita`.
+   dessas configurações para a feature `vita` (minúscula), inclusive
+   `application/run/main_scene` quando o jogo usa uma cena de entrada própria
+   no Vita. O botão **Preparar configurações para PS Vita** grava essas
+   substituições e troca as antigas `.Vita` pelas novas.
 4. Adicione PS Vita na janela de exportação. Na aba de scripts, selecione
    **Text (easier debugging)**. O `export_presets.cfg` de exemplo já está pronto.
 5. Preencha nome, Title ID (9 letras maiúsculas/dígitos) e versão NN.NN.
@@ -74,6 +77,10 @@ original, relatório do verificador e os logs da compilação para rastreabilida
 `test_exporter.gd` exercita a validação de presets e a estrutura do SFO.
 `tools/tests/test_editor_vpk.py` verifica o pacote final e extrai uma cópia de
 seus recursos para teste no host. O teste final no aparelho continua necessário.
+As opções de exportação do tipo `String` com lista devem enumerar os valores
+gravados, sem o formato `Rótulo:valor`: o Godot grava o item escolhido
+literalmente. Presets da v0.3 com `Desativado:disabled` são convertidos ao
+validar.
 
 ## Padrões e PNG-8
 

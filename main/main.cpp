@@ -2586,6 +2586,18 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		rendering_method_source = OS::RenderingSource::RENDERING_SOURCE_PROJECT_SETTING;
 	}
 
+#if defined(TOOLS_ENABLED) && defined(GLES3_ENABLED) && !defined(RD_ENABLED)
+	// Godot4Vita desktop editors are built without RenderingDevice drivers.
+	// A project saved with Forward+ or Mobile would otherwise fail with
+	// "Video driver not found"; open it with the Compatibility renderer,
+	// which is also the one the PS Vita export requires.
+	if (rendering_driver.is_empty() && (rendering_method == "forward_plus" || rendering_method == "mobile")) {
+		WARN_PRINT(vformat("The '%s' renderer is not available in this editor build. Falling back to the Compatibility renderer; set Rendering > Renderer > Rendering Method to gl_compatibility to remove this warning.", rendering_method));
+		rendering_method = "gl_compatibility";
+		rendering_method_source = OS::RenderingSource::RENDERING_SOURCE_FALLBACK;
+	}
+#endif
+
 	if (rendering_driver.is_empty()) {
 		if (rendering_method == "dummy") {
 			rendering_driver = "dummy";

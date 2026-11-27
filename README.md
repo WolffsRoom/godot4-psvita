@@ -472,7 +472,7 @@ platform/vita/tools/build_macos_editor.sh "$PWD/_build/editor-macos"
 python platform/vita/tools/package_editor_distribution.py --platform macos --arch universal --payload _build/editor-macos/Godot4Vita.app --support /path/to/portable-support --output releases/Godot4Vita-v0.3-macOS-universal.zip
 ```
 
-`portable-support` is the extracted editor distribution containing `vita/templates/vita_release.zip`. Without an argument the build scripts write to `../_build/` beside the checkout. The **Godot4Vita editor distributions** workflow builds the Linux editor on Ubuntu 22.04 and the macOS editor on macOS 15, exports a sample project to a VPK with each, and publishes checksummed artifacts for validation before a release.
+`portable-support` is the extracted editor distribution containing `vita/templates/vita_release.zip`. Linux display drivers, the Compatibility fallback and validation are described in [INTEGRATED_LINUX.md](platform/vita/editor/INTEGRATED_LINUX.md). Without an argument the build scripts write to `../_build/` beside the checkout. The **Godot4Vita editor distributions** workflow builds the Linux editor on Ubuntu 22.04 and the macOS editor on macOS 15, exports a sample project to a VPK with each, and publishes checksummed artifacts for validation before a release.
 
 See [BUILDING.md](platform/vita/BUILDING.md), [INTEGRATED_WINDOWS.md](platform/vita/editor/INTEGRATED_WINDOWS.md) and [GXM_BACKEND.md](platform/vita/GXM_BACKEND.md).
 

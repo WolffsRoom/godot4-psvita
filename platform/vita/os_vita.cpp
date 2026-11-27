@@ -175,7 +175,9 @@ void OS_Vita::alert(const String &p_alert, const String &p_title) {
 }
 
 bool OS_Vita::_check_internal_feature_support(const String &p_feature) {
-	return p_feature == "mobile" || p_feature == "vita" || p_feature == "etc2";
+	// "Vita" keeps project overrides written by editors up to v0.3
+	// (".Vita" suffix) working; current editors write ".vita".
+	return p_feature == "mobile" || p_feature == "vita" || p_feature == "Vita" || p_feature == "etc2";
 }
 
 Error OS_Vita::get_entropy(uint8_t *r_buffer, int p_bytes) {
