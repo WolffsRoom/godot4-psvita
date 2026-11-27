@@ -549,8 +549,13 @@ public:
             const String decl = semicolon >= 0 ? line.substr(0, semicolon) : line;
             const int equal = decl.find("=");
             if (equal < 0) continue;
-            const String before = decl.substr(8, equal - 8).strip_edges();
-            const PackedStringArray words = before.split(" ", false);
+            String before = decl.substr(8, equal - 8).strip_edges();
+            const int hint = before.find(":");
+            if (hint >= 0) before = before.substr(0, hint).strip_edges(); // "vec4 c: source_color"
+            PackedStringArray words;
+            for (const String &word : before.split(" ", false)) {
+                if (word != "lowp" && word != "mediump" && word != "highp") words.push_back(word);
+            }
             if (words.size() < 2) continue;
             const String type = words[0], name = words[1];
             if (type == "sampler2D" || type == "samplerCube") continue;

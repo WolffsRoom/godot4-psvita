@@ -50,7 +50,7 @@ class EditorDistributionTest(unittest.TestCase):
             MODULE.package_distribution("linux", "x86_64", binary, support, destination)
             with zipfile.ZipFile(destination) as archive:
                 names = set(archive.namelist())
-                prefix = "Godot4Vita-v0.3-Linux-x86_64/"
+                prefix = "Godot4Vita-v0.4-Linux-x86_64/"
                 self.assertIn(prefix + "Godot4Vita", names)
                 mode = archive.getinfo(prefix + "Godot4Vita").external_attr >> 16
                 self.assertEqual(mode & 0o111, 0o111)
@@ -70,7 +70,7 @@ class EditorDistributionTest(unittest.TestCase):
             MODULE.package_distribution("macos", "universal", app, support, destination)
             with zipfile.ZipFile(destination) as archive:
                 names = set(archive.namelist())
-                prefix = "Godot4Vita-v0.3-macOS-universal/Godot4Vita.app/Contents/"
+                prefix = "Godot4Vita-v0.4-macOS-universal/Godot4Vita.app/Contents/"
                 self.assertIn(prefix + "MacOS/Godot4Vita", names)
                 self.assertIn(prefix + "MacOS/vita/templates/vita_release.zip", names)
                 self.assertIn(prefix + "Resources/LEIA-ME.md", names)

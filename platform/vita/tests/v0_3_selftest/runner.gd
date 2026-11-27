@@ -1,5 +1,5 @@
 extends Node
-## Godot4Vita v0.3 self test: runs every v0.3 device test in one app, with no
+## Godot4Vita v0.4 self test: runs every device test in one app, with no
 ## input needed. Each stage is the original test scene (copied into its own
 ## folder) started with the "selftest" meta, which makes it run on its own and
 ## emit selftest_finished(summary) when done.
@@ -8,8 +8,10 @@ extends Node
 ##   2. gxm3d     GXM 3D feature scene for 12 s, then 7 benchmark phases
 ##   3. showcase  guided tour, PCK read A/B with the prefetch paused/active,
 ##                about a minute of movement with the audio loop playing
+##   4. shaders   v0.4: eight canvas_item shaders through the native GXM
+##                shader compiler; compile results read back from the log
 ##
-## The run takes about 6 minutes. START skips the current stage. At the end a
+## The run takes about 6.5 minutes. START skips the current stage. At the end a
 ## summary is shown, written to the app's log folder and to user://, and the
 ## app quits by itself so the runtime writes its shutdown telemetry (the final
 ## "[vita-io] PCK prefetch requests=..." line). Cross quits at once.
@@ -20,6 +22,7 @@ const STAGES := [
 	{"id": "bench", "scene": "res://bench/main.tscn", "title": "Benchmark de renderização 2D/3D", "detail": "8 fases de 12 s. Não mexa no console.", "timeout_s": 150.0, "vsync": false, "tilt_shift": false},
 	{"id": "gxm3d", "scene": "res://gxm3d/main.tscn", "title": "GXM 3D: Tux, Pixel Plush e transparência", "detail": "12 s de cena (observe a tela), depois 7 fases de benchmark.", "timeout_s": 130.0, "vsync": false, "tilt_shift": false},
 	{"id": "showcase", "scene": "res://showcase/main.tscn", "title": "Showcase v0.3: PCK, prefetch e áudio", "detail": "Tour, 12 leituras do PCK (prefetch A/B) e 1 min andando. Ouça o áudio.", "timeout_s": 200.0, "vsync": true, "tilt_shift": true},
+	{"id": "shaders", "scene": "res://shaders/main.tscn", "title": "Shaders GXM (v0.4)", "detail": "8 quadros com shaders por 15 s. Compare cada um com a descrição (foto ajuda).\nPrecisa do libshacccg.suprx em ur0:data/.", "timeout_s": 40.0, "vsync": true, "tilt_shift": false},
 ]
 const INTRO_S := 3.0
 const END_QUIT_S := 25.0
@@ -50,7 +53,7 @@ func _ready() -> void:
 	var capunlocker := OS.get_environment("GODOT_VITA_CAPUNLOCKER")
 	var prefetch := OS.get_environment("GODOT_VITA_PCK_PREFETCH")
 	report = {
-		"version": ProjectSettings.get_setting("application/config/version", "0.3"),
+		"version": ProjectSettings.get_setting("application/config/version", "0.4"),
 		"os": OS.get_name(),
 		"capunlocker": capunlocker,
 		"pck_prefetch": prefetch,
@@ -161,6 +164,13 @@ func _end_stage(status: String, summary: Dictionary) -> void:
 func _log_stage_summary(id: String, summary: Dictionary) -> void:
 	for r in summary.get("results", []):
 		_log("[selftest] result stage=%s phase=%s avg_ms=%.3f p95_ms=%.3f fps=%.1f" % [id, r.phase, r.avg_ms, r.p95_ms, r.fps])
+	if id == "shaders":
+		_log("[selftest] shaders mode=%s compiled=%d failed=%d gpu_draws=%d log=%s" % [summary.get("mode", "?"), summary.get("compiled", 0), summary.get("failed", 0), summary.get("gpu_draws", 0), summary.get("log", "?")])
+		var translated: Dictionary = summary.get("translated", {})
+		for name in translated:
+			_log("[selftest] shader %s: %s" % [name, translated[name]])
+		for line in summary.get("diagnostics", []):
+			_log("[selftest] shader-diag " + line)
 	if id == "showcase" and summary.has("probes"):
 		_log("[selftest] pck_ab median_on_ms=%.3f median_off_ms=%.3f probes=%d" % [summary.median_on_ms, summary.median_off_ms, summary.probes.size()])
 
@@ -179,7 +189,7 @@ func _finish() -> void:
 	finished = true
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
 	var lines := PackedStringArray()
-	lines.append("GODOT4VITA v0.3 - TESTE AUTOMÁTICO CONCLUÍDO")
+	lines.append("GODOT4VITA v0.4 - TESTE AUTOMÁTICO CONCLUÍDO")
 	lines.append("CapUnlocker: %s   Prefetch no boot: %s" % ["sim" if report.capunlocker == "1" else "não", "ativo" if report.pck_prefetch == "1" else "inativo"])
 	lines.append("")
 	for info in STAGES:
@@ -192,6 +202,8 @@ func _finish() -> void:
 				if r.avg_ms > worst.avg_ms:
 					worst = r
 			line += "  %d fases, mais lenta: %s %.1f ms" % [results.size(), worst.phase, worst.avg_ms]
+		if info.id == "shaders" and s.has("compiled"):
+			line += "  modo %s: %d compilados, %d falharam, %d desenhos na GPU" % [s.mode, s.compiled, s.failed, s.gpu_draws]
 		if info.id == "showcase" and s.has("frames"):
 			line += "  %.1f ms/frame (p95 %.1f)" % [s.avg_ms, s.p95_ms]
 		lines.append(line)

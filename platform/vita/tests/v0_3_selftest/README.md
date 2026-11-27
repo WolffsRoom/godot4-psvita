@@ -1,4 +1,4 @@
-# Godot4Vita v0.3 self test
+# Godot4Vita v0.4 self test
 
 One VPK that runs every v0.3 device test in sequence, with no input. It
 replaces the four-VPK test kit (benchmark, GXM3D test, showcase with and
@@ -9,6 +9,7 @@ without prefetch).
 | 1. `bench` | `tests/vitagl_benchmark` | 8 renderer phases (2D sprites, UI, SubViewport, 3D boxes, spheres, vertex lighting, transparency), 2 s warm-up and 10 s measured each, vsync off | ~1 min 40 s |
 | 2. `gxm3d` | `tests/gxm3d_tux` | the Tux / Pixel Plush scene for 12 s (sprite frames, sorted transparency, Label3D, tint, skinning), then 7 benchmark phases, vsync off | ~1 min 30 s |
 | 3. `showcase` | `tests/v0_3_showcase` | the guided tour, 12 reads of the 1.5 MiB `pck_probe.bin` alternating prefetch active / paused, 45 s of movement with the audio loop, first person, 2D card, giant scale; vsync and tilt shift on | ~1 min 50 s |
+| 4. `shaders` | v0.4 | eight canvas_item shaders (UV, uniform defaults, helper functions with uniforms and TIME, mod/atan/PI, TEXTURE_PIXEL_SIZE, a second sampler, modulate, screen texture mips) through the native GXM shader compiler in `safe` mode; each tile says what it should look like; the stage reads its own `godot_stderr.log` back and the report lists which shaders were translated, compiled and drawn | ~20 s |
 
 Each stage is a copy of the original scene in its own folder. The copies only
 add a `selftest` mode: the runner sets the `selftest` meta before adding the
@@ -17,7 +18,7 @@ The original test projects are unchanged.
 
 START skips the current stage. At the end the app shows a summary, writes
 `selftest_report.txt` (summary, all `[selftest]` lines and a JSON copy) to
-`ux0:data/g4v03selftest/logs/` and to `user://`, and quits by itself after
+`ux0:data/g4v04selftest/logs/` and to `user://`, and quits by itself after
 25 s (Cross quits at once). The clean exit makes the runtime write its shutdown
 telemetry, including `[vita-io] PCK prefetch requests=... hits=...`.
 
@@ -37,9 +38,18 @@ prefetch never starts and the report says the comparison is not valid.
 
 ## Export
 
-`export_presets.cfg` builds an embedded-PCK VPK (`G4VT00003`, data folder
-`g4v03selftest`), CapUnlocker optional, prefetch on, RGBA4444 textures (the
+`export_presets.cfg` builds an embedded-PCK VPK (`G4VT00004`, data folder
+`g4v04selftest`, shader compiler `safe`), CapUnlocker optional, prefetch on, RGBA4444 textures (the
 editor default). The PCK is required: the prefetch only applies to PCK reads.
 
 Host smoke test (no Vita): `godot --headless --path . -- --quick` runs all
 stages with short benchmark phases. The showcase stage keeps its real timing.
+
+## Shader stage (v0.4)
+
+Needs `libshacccg.suprx` in `ur0:data/` (see `platform/vita/SHADER_COMPILER.md`).
+Without it the tiles fall back to plain textures/blank rectangles and the
+report says `compiled=0`. The compile counts come from the runtime log, so
+they prove what the firmware compiler returned; whether each tile *looks*
+right still needs a photo of the screen. On the host the tiles are Godot's
+own rendering and serve as the reference picture.

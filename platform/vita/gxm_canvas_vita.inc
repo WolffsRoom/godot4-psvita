@@ -12,7 +12,18 @@ class GXMCanvas : public RasterizerCanvasDummy {
     HashSet<RID> unshaded_rect_diagnostics;
     HashMap<RID, int> compiled_shaders;
     HashMap<RID, String> shaders_awaiting_compile;
+    // Parsed once per shader: walking the source for every canvas item cost
+    // several string copies per draw on the Vita CPU.
+    struct ShaderInfo {
+        Vector<GXMCanvasShaderTranslator::Uniform> uniforms;
+        PackedStringArray samplers;
+        bool screen = false;
+    };
+    HashMap<RID, ShaderInfo> shader_infos;
     int active_shader = 0;
+    // Slot of gxm_u_TEXTURE_PIXEL_SIZE in active_uniforms (-1: unused);
+    // filled per draw from the bound texture.
+    int texture_pixel_size_slot = -1;
     void *active_screen = nullptr;
     bool drawing_screen_target = false;
     bool native_screen_shader_ready = false;
@@ -119,6 +130,11 @@ class GXMCanvas : public RasterizerCanvasDummy {
             st[2 * i] = uv ? uv[i].x : 0.0f; st[2 * i + 1] = uv ? uv[i].y : 0.0f;
         }
         if (active_shader > 0) {
+            if (texture_pixel_size_slot >= 0) {
+                VitaGXMCanvasUniform &u = active_uniforms[texture_pixel_size_slot];
+                u.value[0] = tex.gpu && tex.size.x > 0 ? 1.0f / tex.size.x : 1.0f;
+                u.value[1] = tex.gpu && tex.size.y > 0 ? 1.0f / tex.size.y : 1.0f;
+            }
             if (vita_gxm_canvas_shader_draw(active_shader, tex.gpu, active_screen, xy, st,
                     gxm_color(color), active_uniforms, active_uniform_count,
                     active_samplers, active_sampler_count)) {
@@ -557,6 +573,7 @@ public:
         active_screen = nullptr;
         active_uniform_count = 0;
         active_sampler_count = 0;
+        texture_pixel_size_slot = -1;
         if (!materials || !vita_gxm_canvas_shader_compiler_enabled()) return;
         const RID material = item->material.is_valid() ? item->material :
                 (item->material_owner ? item->material_owner->material : RID());
@@ -582,7 +599,16 @@ public:
             fflush(stderr);
         }
         if (active_shader <= 0) return;
-        if (materials->shader_get_code(shader).contains("hint_screen_texture")) {
+        ShaderInfo *info = shader_infos.getptr(shader);
+        if (!info) {
+            const String code = materials->shader_get_code(shader);
+            ShaderInfo parsed;
+            parsed.uniforms = GXMCanvasShaderTranslator::uniform_declarations(code);
+            parsed.samplers = GXMCanvasShaderTranslator::additional_sampler_names(code);
+            parsed.screen = GXMCanvasShaderTranslator::uses_screen_texture(code);
+            info = &shader_infos.insert(shader, parsed)->value;
+        }
+        if (info->screen) {
             if (!drawing_screen_target) {
                 // Defer this screen shader until its capture target is enabled.
                 active_shader = 0;
@@ -595,10 +621,9 @@ public:
             }
         }
         const HashMap<StringName, Variant> *params = materials->material_parameters(material);
-        const PackedStringArray sampler_names = GXMCanvasShaderTranslator::additional_sampler_names(
-                materials->shader_get_code(shader));
-        for (int i = 0; i < sampler_names.size() && i < 4; ++i) {
-            const StringName sampler_name = sampler_names[i];
+        const HashMap<StringName, Variant> *defaults = materials->shader_default_params(shader);
+        for (int i = 0; i < info->samplers.size() && i < 4; ++i) {
+            const StringName sampler_name = info->samplers[i];
             RID texture;
             if (params) {
                 const Variant *candidate = params->getptr(sampler_name);
@@ -607,53 +632,80 @@ public:
             if (!texture.is_valid()) texture = materials->shader_get_default_texture_parameter(shader, sampler_name, 0);
             active_samplers[active_sampler_count++].texture = texture.is_valid() ? storage->get_gpu(texture) : nullptr;
         }
-        if (params) {
-            for (const KeyValue<StringName, Variant> &param : *params) {
-                if (active_uniform_count >= 46) break;
-                VitaGXMCanvasUniform &u = active_uniforms[active_uniform_count];
-                memset(&u, 0, sizeof(u));
-                const CharString name = String(param.key).utf8();
-                strncpy(u.name, name.get_data(), sizeof(u.name) - 1);
-                switch (param.value.get_type()) {
-                    case Variant::FLOAT:
-                    case Variant::INT:
-                        u.value[0] = float(param.value); u.components = 1; break;
-                    case Variant::BOOL:
-                        u.value[0] = bool(param.value) ? 1.0f : 0.0f; u.components = 1; break;
-                    case Variant::COLOR: {
-                        const Color c = param.value;
-                        u.value[0] = c.r; u.value[1] = c.g;
-                        u.value[2] = c.b; u.value[3] = c.a; u.components = 4;
-                    } break;
-                    case Variant::VECTOR2: {
-                        const Vector2 v = param.value;
-                        u.value[0] = v.x; u.value[1] = v.y; u.components = 2;
-                    } break;
-                    case Variant::VECTOR3: {
-                        const Vector3 v = param.value;
-                        u.value[0] = v.x; u.value[1] = v.y; u.value[2] = v.z; u.components = 3;
-                    } break;
-                    case Variant::VECTOR4: {
-                        const Vector4 v = param.value;
-                        u.value[0] = v.x; u.value[1] = v.y;
-                        u.value[2] = v.z; u.value[3] = v.w; u.components = 4;
-                    } break;
-                    default: break;
-                }
-                if (u.components) active_uniform_count++;
-            }
+        // Every declared uniform is written on every draw: material value,
+        // else the shader's default, else zero (Godot's implicit default).
+        // The fragment default uniform buffer is not cleared by GXM, so a
+        // uniform left out here would read stale data from earlier draws.
+        for (const GXMCanvasShaderTranslator::Uniform &decl : info->uniforms) {
+            if (active_uniform_count >= 45) break;
+            VitaGXMCanvasUniform &u = active_uniforms[active_uniform_count];
+            memset(&u, 0, sizeof(u));
+            const CharString name = GXMCanvasShaderTranslator::uniform_cg_name(decl.name).utf8();
+            strncpy(u.name, name.get_data(), sizeof(u.name) - 1);
+            u.components = decl.components;
+            const StringName key = decl.name;
+            const Variant *value = params ? params->getptr(key) : nullptr;
+            if (!value || value->get_type() == Variant::NIL) value = defaults ? defaults->getptr(key) : nullptr;
+            if (value) write_uniform_value(*value, u.value);
+            active_uniform_count++;
         }
         // Godot canvas builtins are updated once per draw, including while
         // the scene tree is paused (shader TIME is wall-clock elapsed).
         VitaGXMCanvasUniform &time = active_uniforms[active_uniform_count++];
         memset(&time, 0, sizeof(time));
-        strcpy(time.name, "TIME"); time.value[0] = OS::get_singleton()->get_ticks_usec() / 1000000.0f;
+        strcpy(time.name, "gxm_u_TIME");
+        time.value[0] = float(double(OS::get_singleton()->get_ticks_usec() % 3600000000ULL) / 1000000.0);
         time.components = 1;
         VitaGXMCanvasUniform &pixel = active_uniforms[active_uniform_count++];
         memset(&pixel, 0, sizeof(pixel));
-        strcpy(pixel.name, "SCREEN_PIXEL_SIZE");
+        strcpy(pixel.name, "gxm_u_SCREEN_PIXEL_SIZE");
         pixel.value[0] = 1.f / 960.f; pixel.value[1] = 1.f / 544.f;
         pixel.components = 2;
+        texture_pixel_size_slot = active_uniform_count;
+        VitaGXMCanvasUniform &texel = active_uniforms[active_uniform_count++];
+        memset(&texel, 0, sizeof(texel));
+        strcpy(texel.name, "gxm_u_TEXTURE_PIXEL_SIZE");
+        texel.value[0] = 1.f; texel.value[1] = 1.f;
+        texel.components = 2;
+    }
+
+    static void write_uniform_value(const Variant &value, float *out) {
+        switch (value.get_type()) {
+            case Variant::FLOAT:
+            case Variant::INT:
+                out[0] = float(value); break;
+            case Variant::BOOL:
+                out[0] = bool(value) ? 1.0f : 0.0f; break;
+            case Variant::COLOR: {
+                const Color c = value;
+                out[0] = c.r; out[1] = c.g; out[2] = c.b; out[3] = c.a;
+            } break;
+            case Variant::VECTOR2: {
+                const Vector2 v = value;
+                out[0] = v.x; out[1] = v.y;
+            } break;
+            case Variant::VECTOR2I: {
+                const Vector2i v = value;
+                out[0] = v.x; out[1] = v.y;
+            } break;
+            case Variant::VECTOR3: {
+                const Vector3 v = value;
+                out[0] = v.x; out[1] = v.y; out[2] = v.z;
+            } break;
+            case Variant::VECTOR3I: {
+                const Vector3i v = value;
+                out[0] = v.x; out[1] = v.y; out[2] = v.z;
+            } break;
+            case Variant::VECTOR4: {
+                const Vector4 v = value;
+                out[0] = v.x; out[1] = v.y; out[2] = v.z; out[3] = v.w;
+            } break;
+            case Variant::VECTOR4I: {
+                const Vector4i v = value;
+                out[0] = v.x; out[1] = v.y; out[2] = v.z; out[3] = v.w;
+            } break;
+            default: break;
+        }
     }
 
     PolygonID request_polygon(const Vector<int> &p_indices, const Vector<Point2> &p_points, const Vector<Color> &p_colors,

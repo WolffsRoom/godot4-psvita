@@ -47,7 +47,7 @@ anchor_bottom = 1.0
 ''', encoding="utf-8")
 with zipfile.ZipFile(template) as z:
     manifest = json.loads(z.read("vita-template.json"))
-    assert z.testzip() is None and manifest["runtime_shacc"] == "v1"
+    assert z.testzip() is None and manifest["runtime_shacc"] in ("v1", "v2")
     assert manifest["external_game_data"] is True
 run = subprocess.run([str(editor),"--headless","--editor","--path",str(proj),"--quit"],
                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT,timeout=110)

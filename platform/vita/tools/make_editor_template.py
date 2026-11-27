@@ -60,7 +60,12 @@ def main():
 </livearea>'''
     manifest = {'format': 1, 'godot': '4.8-dev7', 'backend': 'gxm3d-experimental' if 'gxm3d.cfg' in files else 'gxm2d',
                 'external_game_data': b'app0:game_data_folder.cfg\x00' in files['libgodot.so'],
-                'runtime_shacc': 'v1' if b'vita_gxm_canvas_shader_compiler_enabled' in files['libgodot.so'] else 'none',
+                # v2 (v0.4): uniforms passed as gxm_u_<name>, defaults written,
+                # modulate applied before the shader body. v1 (v0.3) runtimes
+                # never compiled a translated shader on hardware.
+                'runtime_shacc': ('v2' if b'gxm_u_TEXTURE_PIXEL_SIZE' in files['libgodot.so'] else 'v1')
+                if b'vita_gxm_canvas_shader_compiler_enabled' in files['libgodot.so'] else 'none',
+                'godot4vita': 'v0.4' if b'gxm_u_TEXTURE_PIXEL_SIZE' in files['libgodot.so'] else 'v0.3',
                 'texture_formats': ['RGBA8888', 'RGBA4444'] if args.rgba4444 else ['RGBA8888'],
                 'source_vpk_sha256': hashlib.sha256(args.vpk.read_bytes()).hexdigest(),
                 'sha256': {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}

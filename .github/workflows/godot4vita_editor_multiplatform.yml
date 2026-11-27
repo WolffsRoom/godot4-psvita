@@ -1,7 +1,7 @@
 name: Godot4Vita editor distributions
 
 on:
-  # Runs when this workflow changes on the v0.3 test branch (test); workflow_dispatch
+  # Runs when this workflow changes on the test branch (test); workflow_dispatch
   # only works once the file is on the default branch.
   push:
     branches: [test]
@@ -11,7 +11,7 @@ on:
       support_release:
         description: Release tag containing the Windows editor ZIP used as the portable Vita support payload
         required: true
-        default: v0.3
+        default: v0.4
 
 permissions:
   contents: read
@@ -27,13 +27,13 @@ jobs:
             arch: x86_64
             build: platform/vita/tools/build_linux_editor.sh
             payload: _build/editor-linux/Godot4Vita
-            artifact: Godot4Vita-v0.3-Linux-x86_64.zip
+            artifact: Godot4Vita-v0.4-Linux-x86_64.zip
           - runner: macos-15
             host: macos
             arch: universal
             build: platform/vita/tools/build_macos_editor.sh
             payload: _build/editor-macos/Godot4Vita.app
-            artifact: Godot4Vita-v0.3-macOS-universal.zip
+            artifact: Godot4Vita-v0.4-macOS-universal.zip
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     steps:
@@ -59,6 +59,9 @@ jobs:
       - name: Download portable Vita support payload
         env:
           GH_TOKEN: ${{ github.token }}
+          # Push runs use the latest published support release until the v0.4
+          # Windows ZIP exists; the runtime check below then marks the
+          # artifacts as not for release.
           SUPPORT_TAG: ${{ inputs.support_release || 'v0.3' }}
         shell: bash
         run: |
@@ -101,21 +104,22 @@ jobs:
       - name: Check the bundled Vita runtime
         id: runtime
         shell: bash
-        # The support ZIP brings vita/templates/vita_release.zip. Only a v0.3
-        # runtime (PCK prefetch) matches the v0.3 export scripts copied above;
-        # an older one still packages, but the artifact is marked not for release.
+        # The support ZIP brings vita/templates/vita_release.zip. Only a v0.4
+        # runtime (shader translator contract v2) matches the export scripts
+        # copied above; an older one still packages, but the artifact is
+        # marked not for release.
         run: |
           python - <<'PY'
           import json, os, zipfile
           with zipfile.ZipFile('_build/support/vita/templates/vita_release.zip') as template:
               lib = template.read('libgodot.so')
               manifest = json.loads(template.read('vita-template.json')) if 'vita-template.json' in template.namelist() else {}
-          v03 = b'GODOT_VITA_PCK_PREFETCH' in lib
+          v04 = b'GODOT_VITA_PCK_PREFETCH' in lib and b'gxm_u_TEXTURE_PIXEL_SIZE' in lib
           print('template manifest:', json.dumps({k: manifest.get(k) for k in ('backend', 'runtime_shacc', 'texture_formats', 'source_vpk_sha256')}))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
-              out.write('suffix=' + ('' if v03 else '-old-vita-runtime-do-not-release') + '\n')
-          if not v03:
-              print('::warning::The support release bundles a pre-v0.3 Vita runtime; run with support_release set to a release whose Windows ZIP carries the v0.3 template.')
+              out.write('suffix=' + ('' if v04 else '-old-vita-runtime-do-not-release') + '\n')
+          if not v04:
+              print('::warning::The support release bundles a pre-v0.4 Vita runtime; run with support_release set to a release whose Windows ZIP carries the v0.4 template.')
           PY
 
       - name: Build editor
@@ -135,6 +139,12 @@ jobs:
       - name: Packaging tests
         run: python platform/vita/tools/tests/test_package_editor_distribution.py
 
+      - name: GXM shader translator test
+        if: matrix.host == 'linux'
+        run: |
+          sudo apt-get install -y nvidia-cg-toolkit || echo "cgc unavailable: Cg syntax check skipped"
+          python platform/vita/tools/tests/test_gxm_shader_translator.py
+
       - name: Linux Vita export smoke test
         if: matrix.host == 'linux'
         shell: bash
@@ -150,7 +160,7 @@ jobs:
               assert archive.testzip() is None
               required = {'eboot.bin', 'libgodot.so', 'sce_sys/param.sfo', 'game_data_folder.cfg'}
               assert required <= set(archive.namelist())
-          # v0.3 separate-folder layout: <folder>/game.pck (+ logs/ on the Vita).
+          # Separate-folder layout (since v0.3): <folder>/game.pck (+ logs/ on the Vita).
           pck = temp / 'exemplovita' / 'game.pck'
           assert pck.read_bytes()[:4] == b'GDPC'
           PY

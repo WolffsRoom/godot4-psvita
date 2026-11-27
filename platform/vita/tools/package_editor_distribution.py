@@ -11,7 +11,7 @@ import stat
 import tempfile
 import zipfile
 
-VERSION = "v0.3"
+VERSION = "v0.4"
 GUIDES = (
     "LEIA-ME.md",
     "TROFEUS.md",

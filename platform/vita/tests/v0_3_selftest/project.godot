@@ -1,11 +1,11 @@
-; Godot4Vita v0.3 self test: one VPK that runs the renderer benchmark, the
-; GXM 3D feature test and the v0.3 showcase (PCK prefetch A/B, audio) in
-; sequence with no input. See README.md.
+; Godot4Vita v0.4 self test: one VPK that runs the renderer benchmark, the
+; GXM 3D feature test, the v0.3 showcase (PCK prefetch A/B, audio) and the
+; v0.4 GXM shader stage in sequence with no input. See README.md.
 config_version=5
 
 [application]
-config/name="Godot4Vita v0.3 Self Test"
-config/version="0.3"
+config/name="Godot4Vita v0.4 Self Test"
+config/version="0.4"
 run/main_scene="res://runner.tscn"
 config/features=PackedStringArray("4.8", "GL Compatibility")
 

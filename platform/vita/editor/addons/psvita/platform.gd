@@ -176,7 +176,7 @@ func _get_export_option_warning(_preset: EditorExportPreset, option: StringName)
 	if option == &"data/folder_name":
 		return "Copie esta pasta inteira para ux0:data/ no Vita. Use um nome exclusivo para cada jogo."
 	if option == &"performance/pck_prefetch":
-		return "v0.3 experimental: antecipa leituras sequenciais do PCK no quarto núcleo quando o CapUnlocker está disponível."
+		return "Experimental (desde a v0.3): antecipa leituras sequenciais do PCK no quarto núcleo quando o CapUnlocker está disponível."
 	if option == &"rendering/shader_compiler":
 		return "Opcional: usa vitaShaRK e o libshacccg.suprx do usuário em ur0:data/. disabled = desativado; safe = apenas shaders simples (experimental); experimental = avançado, pode causar travamentos. Nunca acompanha o VPK."
 	if option == &"textures/gpu_format" and _preset.get(option) == "RGBA4444":
@@ -314,9 +314,13 @@ func _export_project(preset: EditorExportPreset, debug: bool, path: String, _fla
 	if preset.get("textures/gpu_format") not in manifest.get("texture_formats", ["RGBA8888"]):
 		template.close()
 		return _fail("Este template não suporta o formato selecionado. Atualize o template ou selecione RGBA8888.")
-	if enum_option(preset, "rendering/shader_compiler") != "disabled" and manifest.get("runtime_shacc", "") != "v1":
-		template.close()
-		return _fail("O compilador de shaders GXM exige um template v0.3 com integração vitaShaRK. Atualize o template ou desative Rendering / Shader Compiler.")
+	var runtime_shacc: String = manifest.get("runtime_shacc", "")
+	if enum_option(preset, "rendering/shader_compiler") != "disabled":
+		if runtime_shacc not in ["v1", "v2"]:
+			template.close()
+			return _fail("O compilador de shaders GXM exige um template com integração vitaShaRK (v0.3 ou mais novo). Atualize o template ou desative Rendering / Shader Compiler.")
+		if runtime_shacc == "v1":
+			push_warning("PS Vita: o template é da v0.3; o tradutor de shaders dessa versão não chegou a compilar shaders traduzidos no aparelho. Use o template da v0.4.")
 	for binary in ["eboot.bin", "libgodot.so"]:
 		var hashing := HashingContext.new()
 		hashing.start(HashingContext.HASH_SHA256)
